@@ -36,7 +36,8 @@ loadChat();
 function loadNotes() {
   try {
     if (!fs.existsSync(DATA_FILE)) return [];
-    return JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+    const arr = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
+    return Array.isArray(arr) ? arr : [];
   } catch (e) {
     console.error("Failed to load notes:", e);
     return [];
@@ -68,22 +69,29 @@ app.get("/health", (_, res) => {
 // ---- AUTO-ARCHIVE LOGIC ----
 const ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000; // 24h
 
-function normalizeDoneArchiveState(note) {
-  // Ensure fields exist
+function normalizeNote(note) {
+  // fields for new features
   if (note.archived === undefined) note.archived = false;
   if (note.doneAt === undefined) note.doneAt = null;
 
-  // If note is done but doneAt missing, set it (covers old notes)
-  if (note.done && !note.doneAt) note.doneAt = Date.now();
+  if (note.trashed === undefined) note.trashed = false;
+  if (note.trashedAt === undefined) note.trashedAt = null;
 
-  // If not done, clear doneAt (but DO NOT force unarchive)
+  if (note.z === undefined) note.z = 0;
+
+  // If trashed, we don't force anything else. (Trash is separate state.)
+  // If not done, clear doneAt (but do NOT touch "archived" unless you want strict rule)
   if (!note.done) {
     note.doneAt = null;
+    // keep archived as-is (so manual archive stays)
+    // if you want strict rule: note.archived = false;
   }
+
+  // If done and missing doneAt, set it (covers old notes)
+  if (note.done && !note.doneAt) note.doneAt = Date.now();
 
   return note;
 }
-
 
 function runAutoArchiveSweep() {
   const now = Date.now();
@@ -91,7 +99,10 @@ function runAutoArchiveSweep() {
 
   for (let i = 0; i < notes.length; i++) {
     const n = notes[i];
-    normalizeDoneArchiveState(n);
+    normalizeNote(n);
+
+    // Never auto-archive trashed notes (doesn't matter anyway)
+    if (n.trashed) continue;
 
     if (n.done && !n.archived && n.doneAt && (now - n.doneAt >= ARCHIVE_AFTER_MS)) {
       n.archived = true;
@@ -104,18 +115,20 @@ function runAutoArchiveSweep() {
   if (changed) saveNotes(notes);
 }
 
-// Sweep every minute
+// Normalize on startup
+notes.forEach(normalizeNote);
+saveNotes(notes);
+
+// Sweep every minute + once on startup
 setInterval(runAutoArchiveSweep, 60 * 1000);
-// Also run once on startup
 runAutoArchiveSweep();
 
 io.on("connection", (socket) => {
-  // Before sending init, normalize + sweep (so client immediately gets correct archived flags)
   runAutoArchiveSweep();
   socket.emit("notes:init", notes);
 
   socket.on("note:create", (payload) => {
-    const note = normalizeDoneArchiveState({
+    const note = normalizeNote({
       id: nanoid(),
       klient: payload.klient ?? "",
       przedplata: !!payload.przedplata,
@@ -124,10 +137,18 @@ io.on("connection", (socket) => {
       waga: payload.waga ?? "",
       info: payload.info ?? "",
       done: !!payload.done,
+
       archived: false,
       doneAt: payload.done ? Date.now() : null,
+
+      trashed: false,
+      trashedAt: null,
+
+      z: Number.isFinite(payload.z) ? payload.z : 0,
+
       x: Number.isFinite(payload.x) ? payload.x : 80,
       y: Number.isFinite(payload.y) ? payload.y : 80,
+
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -141,7 +162,7 @@ io.on("connection", (socket) => {
     const idx = notes.findIndex((n) => n.id === payload.id);
     if (idx === -1) return;
 
-    const prev = notes[idx];
+    const prev = normalizeNote(notes[idx]);
     const next = { ...prev };
 
     // Copy only keys that are present
@@ -151,49 +172,54 @@ io.on("connection", (socket) => {
 
     // normalize types
     if (payload.przedplata !== undefined) next.przedplata = !!payload.przedplata;
+    if (payload.done !== undefined) next.done = !!payload.done;
     if (payload.archived !== undefined) next.archived = !!payload.archived;
 
+    if (payload.trashed !== undefined) next.trashed = !!payload.trashed;
 
     if (payload.x !== undefined) next.x = Number(payload.x);
     if (payload.y !== undefined) next.y = Number(payload.y);
+    if (payload.z !== undefined) next.z = Number(payload.z);
 
     if (payload.pozycje !== undefined) {
       next.pozycje = Array.isArray(payload.pozycje) ? payload.pozycje : [];
     }
 
-    // --- DONE / ARCHIVE rules ---
+    // DONE rules: manage doneAt
     if (payload.done !== undefined) {
       const newDone = !!payload.done;
       const wasDone = !!prev.done;
 
-      next.done = newDone;
-
       if (newDone && !wasDone) {
-        // just marked done -> start timer now
         next.doneAt = Date.now();
-        next.archived = false;
+        // do NOT force archived off unless you want
       }
-
       if (!newDone) {
-        // un-done -> unarchive and clear doneAt
         next.doneAt = null;
-        next.archived = false;
+        // optional: next.archived = false;
       }
     }
 
-    // If some old note is done but missing doneAt (e.g. edited other fields)
-    normalizeDoneArchiveState(next);
+    // TRASH rules
+    if (payload.trashed !== undefined) {
+      if (next.trashed) {
+        next.trashedAt = Date.now();
+      } else {
+        next.trashedAt = null;
+      }
+    }
 
+    normalizeNote(next);
     next.updatedAt = Date.now();
 
     notes[idx] = next;
     saveNotes(notes);
     io.emit("note:upsert", next);
 
-    // In case this update makes it eligible (rare, but safe)
     runAutoArchiveSweep();
   });
 
+  // Permanent delete (used only from Trash UI)
   socket.on("note:delete", ({ id }) => {
     const before = notes.length;
     notes = notes.filter((n) => n.id !== id);
@@ -201,6 +227,18 @@ io.on("connection", (socket) => {
 
     saveNotes(notes);
     io.emit("note:delete", { id });
+  });
+
+  // Empty trash: permanently deletes all trashed notes
+  socket.on("trash:empty", () => {
+    const before = notes.length;
+    const removed = notes.filter(n => n.trashed).map(n => n.id);
+    notes = notes.filter(n => !n.trashed);
+
+    if (notes.length !== before) {
+      saveNotes(notes);
+      removed.forEach(id => io.emit("note:delete", { id }));
+    }
   });
 
   socket.on("board:clear", () => {

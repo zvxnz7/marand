@@ -52,9 +52,10 @@
     .primary{ background: rgba(120,180,255,.25); }
     .danger{ background: rgba(255, 80, 80, 0.767); }
     .editBtn{ background: rgba(255, 238, 83, 0.63); color:#0000009f; }
-    .archBtn{ background: rgba(255, 238, 83, 0.63); color:#0000009f; }
-    .viewSelect{ background: rgba(255,255,255,.12); color:#eee; }
 
+    .archBtn{ background: rgba(180,180,255,.25); color:#eee; }
+
+    .viewSelect{ background: rgba(255,255,255,.12); color:#eee; }
     .muted{ opacity:.85; font-size:12px; }
 
     .statusDot{
@@ -101,14 +102,10 @@
       user-select:none;
       cursor:grab;
       -webkit-tap-highlight-color: transparent;
-
-      /* NEW: smooth state changes */
       transition: opacity .25s ease, transform .25s ease, background-color .25s ease, color .25s ease;
     }
-
     .note.done{ opacity:.65; filter: grayscale(.25); }
 
-    /* NEW: archived look */
     .note.archived{
       background:#2a2f33;
       color:#cfd8dc;
@@ -117,7 +114,13 @@
       border: 1px dashed rgba(255,255,255,.18);
     }
 
-    /* NEW: archiving animation */
+    .note.trashed{
+      background:#2b1f1f;
+      color:#ffd7d7;
+      border: 1px solid rgba(255,120,120,.22);
+      opacity:0.92;
+    }
+
     .note.archiving{
       opacity:0;
       transform: scale(.96);
@@ -257,6 +260,13 @@
     }
     .smallBtn{ padding:8px 10px; border-radius:12px; }
 
+    /* Search input */
+    #searchBox{
+      min-width: 180px;
+      background: rgba(255,255,255,.10);
+      color:#eee;
+    }
+
     @media (max-width: 700px){
       .note{ width:320px; }
       .formRow3{ grid-template-columns: 1fr; }
@@ -281,6 +291,17 @@
       <option value="magazyn">Magazyn</option>
       <option value="biuro">Biuro</option>
     </select>
+
+    <input id="searchBox" type="text" placeholder="🔎 Szukaj (klient, dzianina, kolor, kurier…)" />
+
+    <select id="statusFilter" class="viewSelect" title="Filtr statusu">
+      <option value="all">Wszystkie</option>
+      <option value="todo">Tylko niezrobione</option>
+      <option value="done">Tylko zrobione</option>
+    </select>
+
+    <button id="trashBtn" class="btn">Kosz: OFF</button>
+    <button id="emptyTrashBtn" class="btn danger" style="display:none;">Opróżnij kosz</button>
 
     <span class="muted">
       <span id="dot" class="statusDot offline"></span>
@@ -392,6 +413,38 @@
     const viewSel = document.getElementById("viewSel");
     let currentView = viewSel.value;
 
+    // Search + status filter
+    const searchBox = document.getElementById("searchBox");
+    const statusFilter = document.getElementById("statusFilter");
+    let searchQ = "";
+    let statusMode = "all";
+
+    searchBox.addEventListener("input", () => {
+      searchQ = (searchBox.value || "").trim().toLowerCase();
+      rerenderAll();
+    });
+    statusFilter.addEventListener("change", () => {
+      statusMode = statusFilter.value;
+      rerenderAll();
+    });
+
+    // Trash toggle
+    const trashBtn = document.getElementById("trashBtn");
+    const emptyTrashBtn = document.getElementById("emptyTrashBtn");
+    let showTrash = false;
+
+    function refreshTrashUI(){
+      trashBtn.textContent = showTrash ? "Kosz: ON" : "Kosz: OFF";
+      emptyTrashBtn.style.display = showTrash ? "inline-block" : "none";
+    }
+    refreshTrashUI();
+
+    trashBtn.onclick = () => { showTrash = !showTrash; refreshTrashUI(); rerenderAll(); };
+    emptyTrashBtn.onclick = () => {
+      if (!confirm("Na pewno opróżnić kosz? (trwałe usunięcie)")) return;
+      socket.emit("trash:empty");
+    };
+
     // Archive toggle (single)
     const archiveBtn = document.getElementById("archiveBtn");
     let showArchived = false;
@@ -433,6 +486,15 @@
 
     const notes = new Map();
     let editingId = null;
+
+    // Bring-to-front (sync)
+    let zCounter = 0;
+    function bumpZ(noteId){
+      zCounter++;
+      const el = document.getElementById("note-" + noteId);
+      if (el) el.style.zIndex = String(zCounter);
+      socket.emit("note:update", { id: noteId, z: zCounter });
+    }
 
     // ---------- Camera (pan/zoom) ----------
     let cam = { x: 20, y: 20, z: 1.0 };
@@ -563,7 +625,13 @@
     socket.on("notes:init", (arr) => {
       world.innerHTML = "";
       notes.clear();
+
+      // compute zCounter from notes (so bring-to-front keeps order)
+      const maxZ = Math.max(0, ...(arr || []).map(n => Number(n.z || 0)));
+      zCounter = maxZ;
+
       (arr || []).forEach(upsert);
+      rerenderAll();
     });
 
     socket.on("note:upsert", (note) => upsert(note));
@@ -603,6 +671,7 @@
       } else {
         payload.x = 120 + Math.random() * 220;
         payload.y = 120 + Math.random() * 180;
+        payload.z = ++zCounter;
         socket.emit("note:create", payload);
       }
       closeModal();
@@ -610,7 +679,8 @@
 
     deleteBtn.onclick = () => {
       if (!editingId) return;
-      socket.emit("note:delete", { id: editingId });
+      // From modal: move to trash (not permanent)
+      socket.emit("note:update", { id: editingId, trashed: true });
       closeModal();
     };
 
@@ -710,6 +780,7 @@
       editingId = noteId;
       modalTitle.textContent = "Edytuj notatkę";
       deleteBtn.style.display = "inline-block";
+      deleteBtn.textContent = "Do kosza";
       fillForm(note);
       backdrop.style.display = "flex";
       setTimeout(() => f_klient.focus(), 0);
@@ -718,6 +789,51 @@
     function closeModal(){
       backdrop.style.display = "none";
       editingId = null;
+    }
+
+    // ---------- Filtering ----------
+    function noteMatchesSearch(note){
+      if (!searchQ) return true;
+
+      const parts = [];
+      parts.push(note.klient || "");
+      parts.push(note.kurier || "");
+      parts.push(note.waga || "");
+      parts.push(note.info || "");
+
+      const items = Array.isArray(note.pozycje) ? note.pozycje : [];
+      for (const it of items){
+        parts.push(it.dzianina || "");
+        parts.push(it.kolor || "");
+        parts.push(it.ilosc || "");
+      }
+
+      const hay = parts.join(" ").toLowerCase();
+      return hay.includes(searchQ);
+    }
+
+    function noteMatchesStatus(note){
+      if (statusMode === "all") return true;
+      if (statusMode === "todo") return !note.done;
+      if (statusMode === "done") return !!note.done;
+      return true;
+    }
+
+    function isVisible(note){
+      // Trash view is exclusive: ON shows only trashed, OFF hides trashed
+      if (showTrash) {
+        if (!note.trashed) return false;
+      } else {
+        if (note.trashed) return false;
+      }
+
+      // Archived notes hidden unless Archive ON (but only when not in trash)
+      if (!showTrash && !showArchived && note.archived) return false;
+
+      if (!noteMatchesStatus(note)) return false;
+      if (!noteMatchesSearch(note)) return false;
+
+      return true;
     }
 
     // ---------- Rendering ----------
@@ -737,8 +853,10 @@
         info: note.info ?? "",
         done: !!note.done,
         archived: !!note.archived,
+        trashed: !!note.trashed,
         x: Number(note.x ?? 80),
         y: Number(note.y ?? 80),
+        z: Number(note.z ?? 0),
       };
 
       notes.set(normalized.id, normalized);
@@ -751,11 +869,13 @@
 
       el.style.left = normalized.x + "px";
       el.style.top  = normalized.y + "px";
+      el.style.zIndex = String(normalized.z || 0);
+
       el.classList.toggle("done", normalized.done);
       el.classList.toggle("archived", normalized.archived);
+      el.classList.toggle("trashed", normalized.trashed);
 
-      // hide archived unless Archive: ON
-      el.style.display = (!showArchived && normalized.archived) ? "none" : "block";
+      el.style.display = isVisible(normalized) ? "block" : "none";
 
       updateNoteContent(el, normalized);
     }
@@ -764,7 +884,7 @@
       for (const [id, note] of notes.entries()){
         const el = document.getElementById("note-" + id);
         if (!el) continue;
-        el.style.display = (!showArchived && !!note.archived) ? "none" : "block";
+        el.style.display = isVisible(note) ? "block" : "none";
         updateNoteContent(el, note);
       }
     }
@@ -790,11 +910,24 @@
       const title = el.querySelector(".titleText");
       const przed = el.querySelector(".przedBadge");
 
-      // NEW: update archive button icon + title (keeps it in sync)
+      // Update archive button icon + title
       const archBtn = el.querySelector(".archBtn");
       if (archBtn){
-        archBtn.textContent = note.archived ? "♻" : "🗄";
-        archBtn.title = note.archived ? "Przywróć" : "Archiwizuj";
+        // In trash: archive button becomes "Restore"
+        if (note.trashed){
+          archBtn.textContent = "♻";
+          archBtn.title = "Przywróć z kosza";
+        } else {
+          archBtn.textContent = note.archived ? "♻" : "🗄";
+          archBtn.title = note.archived ? "Przywróć" : "Archiwizuj";
+        }
+      }
+
+      // Delete button label depends on trash state
+      const delBtn = el.querySelector(".delBtn");
+      if (delBtn){
+        delBtn.textContent = note.trashed ? "🗑 Usuń" : "🗑 Do kosza";
+        delBtn.title = note.trashed ? "Usuń trwale" : "Przenieś do kosza";
       }
 
       title.textContent = note.klient ? note.klient : "(brak klienta)";
@@ -845,7 +978,7 @@
           <div class="right">
             <button class="btn archBtn" title="Archiwizuj / Przywróć">🗄</button>
             <button class="btn editBtn" title="Edytuj">Edytuj</button>
-            <button class="btn danger delBtn" title="Usuń">✕</button>
+            <button class="btn danger delBtn" title="Do kosza">🗑 Do kosza</button>
           </div>
         </header>
         <div class="body"></div>
@@ -858,24 +991,43 @@
 
       el.querySelector(".editBtn").onclick = () => openModalEdit(note.id);
 
-      // NEW: toggle archive + animate on archive
+      // Archive button:
+      // - if trashed -> restore from trash
+      // - else -> archive toggle (with animation on archive)
       el.querySelector(".archBtn").onclick = () => {
         const cur = notes.get(note.id) || note;
-        const goingToArchive = !cur.archived;
 
+        if (cur.trashed){
+          socket.emit("note:update", { id: note.id, trashed: false });
+          return;
+        }
+
+        const goingToArchive = !cur.archived;
         if (goingToArchive) {
           el.classList.add("archiving");
           setTimeout(() => {
             socket.emit("note:update", { id: note.id, archived: true });
-            el.classList.remove("archiving"); // if Archive: ON we might still see it
+            el.classList.remove("archiving");
           }, 200);
         } else {
           socket.emit("note:update", { id: note.id, archived: false });
         }
       };
 
+      // Delete button:
+      // - if not trashed -> move to trash
+      // - if trashed -> permanent delete
       el.querySelector(".delBtn").onclick = () => {
-        if (confirm("Usunąć notatkę?")) socket.emit("note:delete", { id: note.id });
+        const cur = notes.get(note.id) || note;
+
+        if (!cur.trashed){
+          socket.emit("note:update", { id: note.id, trashed: true });
+          return;
+        }
+
+        if (confirm("Usunąć TRWALE z kosza?")) {
+          socket.emit("note:delete", { id: note.id });
+        }
       };
 
       let dragging = false;
@@ -887,6 +1039,9 @@
         e.stopPropagation();
         dragging = true;
         isDraggingNote = true;
+
+        // bring-to-front (sync)
+        bumpZ(note.id);
 
         el.style.cursor = "grabbing";
         el.setPointerCapture(e.pointerId);
