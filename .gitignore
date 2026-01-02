@@ -1,0 +1,7 @@
+node_modules/
+data/
+notes.json
+chat.json
+.DS_Store
+*.log
+.env

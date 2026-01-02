@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat</title>
+  <style>
+    html, body { height:100%; margin:0; background:#0f0f0f; color:#eee; font-family: system-ui; }
+    .wrap { height:100%; display:flex; flex-direction:column; }
+    .top {
+      padding:10px 12px;
+      border-bottom:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(10px);
+      display:flex; align-items:center; gap:10px;
+    }
+    .dot { width:8px; height:8px; border-radius:999px; background:#888; }
+    .dot.on { background:#63ff7a; }
+    .muted { opacity:.8; font-size:12px; }
+    #msgs { flex:1; overflow:auto; padding:10px 12px; font-size:14px; }
+    .row { margin-bottom:8px; }
+    .ts { opacity:.65; font-size:12px; margin-right:6px; }
+    .composer {
+      padding:10px 12px;
+      border-top:1px solid rgba(255,255,255,.12);
+      display:flex; gap:8px;
+      background: rgba(0,0,0,.35);
+    }
+    input, button {
+      border:0; outline:0; border-radius:12px;
+      padding:10px; font:inherit;
+    }
+    input { background: rgba(255,255,255,.10); color:#eee; }
+    #name { width:38%; }
+    #text { flex:1; }
+    button { cursor:pointer; background: rgba(120,180,255,.25); color:#eee; }
+    button:hover { filter: brightness(1.1); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <b style="flex:1">Chat</b>
+      <span class="dot" id="dot"></span>
+      <span class="muted" id="status">łączenie…</span>
+    </div>
+
+    <div id="msgs"></div>
+
+    <div class="composer">
+      <input id="name" type="text" placeholder="Twoje imię (opcjonalnie)" />
+      <input id="text" type="text" placeholder="Wiadomość…" />
+      <button id="send">Send</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    const dot = document.getElementById("dot");
+    const status = document.getElementById("status");
+    const msgs = document.getElementById("msgs");
+    const nameEl = document.getElementById("name");
+    const textEl = document.getElementById("text");
+    const sendBtn = document.getElementById("send");
+
+    function esc(s){
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+    function addChatMsg(m){
+      const name = esc(m?.name ? m.name : "Anon");
+      const text = esc(m?.text ? m.text : "");
+      const ts = m?.ts ? new Date(m.ts).toLocaleTimeString() : "";
+      const div = document.createElement("div");
+      div.className = "row";
+      div.innerHTML = `<span class="ts">${esc(ts)}</span><b>${name}:</b> ${text}`;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    socket.on("connect", () => {
+      status.textContent = "połączono";
+      dot.classList.add("on");
+      // Ask for history (server will send chat:init)
+      socket.emit("chat:join");
+    });
+
+    socket.on("disconnect", () => {
+      status.textContent = "rozłączono";
+      dot.classList.remove("on");
+    });
+
+    socket.on("chat:init", (arr) => {
+      msgs.innerHTML = "";
+      (arr || []).forEach(addChatMsg);
+      msgs.scrollTop = msgs.scrollHeight;
+    });
+
+    socket.on("chat:new", (m) => addChatMsg(m));
+
+    function send(){
+      const text = (textEl.value || "").trim();
+      if (!text) return;
+      socket.emit("chat:send", { name: (nameEl.value || "").trim(), text });
+      textEl.value = "";
+      textEl.focus();
+    }
+
+    sendBtn.onclick = send;
+    textEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") send();
+    });
+  </script>
+</body>
+</html>
