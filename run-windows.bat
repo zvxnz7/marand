@@ -21,6 +21,7 @@ if errorlevel 1 (
 
 echo.
 echo Updating repository...
+git stash
 git pull
 if errorlevel 1 (
   echo Git pull failed.
