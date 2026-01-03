@@ -15,7 +15,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "notes.json");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const CHAT_FILE = path.join(__dirname, "chat.json");
+const CHAT_FILE = path.join(DATA_DIR, "chat.json");
 let chat = [];
 
 function loadChat() {

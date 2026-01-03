@@ -2,6 +2,9 @@ node_modules/
 data/
 notes.json
 chat.json
+Marand.png
+Noteo.png
+chat.html
 .DS_Store
 *.log
 .env
