@@ -150,15 +150,23 @@
 
     .statusDot{
       display:inline-block;
-      width:8px; height:8px;
+      width:10px; height:10px;
       border-radius:999px;
       background:#888;
       margin-right:6px;
       vertical-align:middle;
       box-shadow: 0 0 12px rgba(0,0,0,.35);
     }
-    .online{ background: var(--good); box-shadow: 0 0 18px rgba(99,255,122,.35); }
-    .offline{ background: var(--bad); box-shadow: 0 0 18px rgba(255,107,107,.28); }
+
+    /* .online{ background: var(--good); box-shadow: 0 0 18px rgba(99,255,122,.35); } */
+    .online { 
+      background: var(--good); 
+      box-shadow: 0 0 5px var(--good), 0 0 20px var(--good); 
+    }
+    .offline{ 
+      background: var(--bad); 
+      box-shadow: 0 0 5px var(--bad), 0 0 20px var(--bad); 
+    }
 
     /* ---- Board viewport/world ---- */
     #viewport{
