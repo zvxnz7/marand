@@ -1,5 +1,8 @@
 # ZVNOTES
 
+Local LAN notes / board app running on a Node.js server.
+
+---
 
 ## 🚀 Quick Start (Fresh Computer)
 
@@ -7,30 +10,39 @@ This guide assumes the computer has **nothing installed yet**.
 
 ---
 
-## 1️⃣ Install Node.js (required)
+## 1️⃣ Install required software (once per computer)
 
-1. Open this website:
+### 1. Node.js
+
+1. Open:
    👉 [https://nodejs.org](https://nodejs.org)
 2. Download **LTS** version (green button).
-3. Install using **default options** (click *Next* → *Next* → *Install*).
-4. Restart the computer after installation.
-
-✅ Done once per computer.
+3. Install using **default options**.
+4. Restart the computer.
 
 ---
 
-## 2️⃣ Download the project
+### 2. Git
 
-### Option A (recommended – easiest)
+1. Open:
+   👉 [https://git-scm.com](https://git-scm.com)
+2. Download Git for Windows.
+3. Install using **default options**.
+4. Restart the computer.
 
-1. Open this page:
-   👉 [https://github.com/zvxnz7/marand](https://github.com/zvxnz7/marand)
-2. Click **Code** → **Download ZIP**
-3. Unzip the file anywhere (e.g. `Desktop`).
+✅ Node.js and Git are required.
 
-### Option B (for developers)
+---
 
-```bash
+## 2️⃣ Download the project (Git required)
+
+ZIP downloads are **not supported**.
+
+1. Open CMD.
+2. Choose a location (e.g. Desktop).
+3. Run:
+
+```powershell
 git clone https://github.com/zvxnz7/marand.git
 ```
 
@@ -38,17 +50,16 @@ git clone https://github.com/zvxnz7/marand.git
 
 ## 3️⃣ Start the server (Windows)
 
-1. Open the project folder.
-2. Go into the **`server`** folder.
-3. Hold **Shift** → Right-click → **“Open PowerShell window here”**
-4. Run:
+### First run
 
-```powershell
-npm install
-npm start
+1. Open the **`server`** folder.
+2. Double‑click:
+
+```
+run-windows.bat
 ```
 
-⏳ First run may take 1–2 minutes.
+⏳ First run may take **1–2 minutes** (dependencies install automatically).
 
 When you see something like:
 
@@ -56,39 +67,40 @@ When you see something like:
 LAN Sticky running on http://0.0.0.0:2115
 ```
 
-the server is ready.
+✅ Server is running.
 
 ---
 
 ## 4️⃣ Open the board in browser
 
-### On the same computer
-
-Open a browser and go to:
+### Same computer
 
 ```
 http://localhost:2115
 ```
 
-### On other devices in the same network (LAN)
+---
 
-1. On the server computer, run:
+### Other devices in the same network (LAN)
 
-   ```powershell
-   ipconfig
-   ```
-2. Find **IPv4 Address** (example: `192.168.0.50`)
-3. On other computers/phones open:
+1. On the server computer, open PowerShell and run:
 
-   ```
-   http://192.168.0.50:2115
-   ```
+```powershell
+ipconfig
+```
 
-📱 Works on phones, tablets, PCs.
+2. Find **IPv4 Address** (example: `192.168.0.50`).
+3. On other devices open:
+
+```
+http://192.168.0.50:2115
+```
+
+📱 Works on phones, tablets, and PCs.
 
 ---
 
-## 5️⃣ Firewall permission (Windows – first time only)
+## 5️⃣ Windows Firewall (first launch only)
 
 When Windows asks:
 
@@ -96,21 +108,22 @@ When Windows asks:
 
 ✔ Click **Allow access**
 
-(Private networks only — do NOT enable Public.)
+❗ Enable **Private networks only**.
 
 ---
 
 ## 🗂 Data storage
 
-* Notes are saved automatically.
-* Data files:
+* Notes are saved automatically
+* Files are stored in:
 
-  ```
-  server/data/notes.json
-  server/chat.json
-  ```
-* Closing the terminal **stops the server**.
-* Data remains saved.
+```
+server/data/notes.json
+server/chat.json
+```
+
+* Closing the console **stops the server**
+* Data remains saved
 
 ---
 
@@ -118,38 +131,43 @@ When Windows asks:
 
 Every next time:
 
-1. Open `server` folder
-2. Open PowerShell
-3. Run:
+1. Open the **`server`** folder
+2. Double‑click:
 
-   ```powershell
-   npm start
-   ```
+```
+run-windows.bat
+```
 
-(No need to run `npm install` again.)
+(No setup needed again.)
 
 ---
 
 ## ❓ Troubleshooting
 
-### “npm is not recognized”
+### `git` or `npm` not recognized
 
-➡ Node.js is not installed or PC wasn’t restarted.
+➡ Git or Node.js is not installed or the PC was not restarted.
 
-### Page doesn’t load on other computers
+---
 
-➡ Check:
+### Page does not load on other devices
 
-* same Wi-Fi / LAN
+Check:
+
+* devices are on the same Wi‑Fi / LAN
 * Windows Firewall allowed Node.js
-* correct IP address
+* correct IP address is used
 
 ---
 
 ## 🧠 Notes
 
-* No internet required after setup
+* Internet required **only** for updates
 * No accounts or login
-* Designed for local office network (LAN)
+* Designed for local LAN use
 
 ---
+
+## 👤 Author
+
+GitHub: [https://github.com/zvxnz7](https://github.com/zvxnz7)
