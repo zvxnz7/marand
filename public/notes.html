@@ -1,0 +1,1250 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#111111">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tablica (Trial)</title>
+
+  <style>
+    :root{
+      --top: 56px;
+    
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.72);
+    
+      --border: rgba(255,255,255,.12);
+      --shadow: 0 20px 70px rgba(0,0,0,.45);
+    
+      --accentA: #7e00fe;
+      --accentB: #6201c2;
+    
+      --good: #63ff7a;
+      --bad: #ff6b6b;
+    }
+    
+    *{ box-sizing: border-box; }
+    html, body { height: 100%; }
+    
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text);
+      overflow:hidden;
+      background: #0f1115;
+    }
+    
+    /* fixed dots wallpaper (never moves) */
+    
+    /* vignette */
+    body::after{
+      content:"";
+      position: fixed;
+      inset:-2px;
+      pointer-events:none;
+      z-index: 1;
+      background: radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 35%, rgba(0,0,0,.65) 92%);
+    }
+    
+    input, textarea, select { user-select: text; }
+    
+    /* ---- Topbar (liquid glass) ---- */
+    .topbar{
+      position: fixed; top:0; left:0; right:0;
+      padding:10px;
+      padding-top: calc(10px + env(safe-area-inset-top));
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap: wrap;
+      z-index: 10;
+    
+      background: rgba(0,0,0,.45);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(14px) saturate(130%);
+      -webkit-backdrop-filter: blur(14px) saturate(130%);
+    }
+    
+    button, input, select{
+      padding:9px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.10);
+      outline:none;
+      font:inherit;
+      color: var(--text);
+      background: rgba(255,255,255,.06);
+      transition: transform .12s ease, filter .12s ease, background .12s ease, border-color .12s ease;
+    }
+    button{ cursor:pointer; }
+    button:active{ transform: translateY(1px) scale(.99); }
+    
+    .btn{
+      background: rgba(255,255,255,.07);
+      border-color: rgba(255,255,255,.12);
+    }
+    .btn:hover{ filter:brightness(1.08); background: rgba(255,255,255,.10); }
+    
+    .primary{
+      background: linear-gradient(to top, rgba(98,1,194,.85), rgba(126,0,254,.90));
+      border-color: rgba(255,255,255,.14);
+      box-shadow: 0 12px 35px rgba(126,0,254,.18);
+    }
+    .primary:hover{ filter:brightness(1.10); }
+    
+    .danger{
+      background: linear-gradient(to top, rgba(255,80,80,.85), rgba(255,120,120,.80));
+      border-color: rgba(255,255,255,.12);
+    }
+    .editBtn{
+      background: linear-gradient(to top, rgba(255,214,80,.85), rgba(255,238,83,.75));
+      color: rgba(0,0,0,.78);
+      border-color: rgba(0,0,0,.10);
+    }
+    .archBtn{
+      background: linear-gradient(to top, rgba(80,135,255,.85), rgba(97,147,255,.85));
+      color: rgba(0,0,0,.82);
+      border-color: rgba(0,0,0,.10);
+    }
+    
+    .viewSelect{ background: rgba(255,255,255,.08); }
+    .muted{ opacity:.85; font-size:12px; }
+    
+    .statusDot{
+      display:inline-block;
+      width:8px; height:8px;
+      border-radius:999px;
+      background:#888;
+      margin-right:6px;
+      vertical-align:middle;
+      box-shadow: 0 0 12px rgba(0,0,0,.35);
+    }
+    .online{ background: var(--good); box-shadow: 0 0 18px rgba(99,255,122,.35); }
+    .offline{ background: var(--bad); box-shadow: 0 0 18px rgba(255,107,107,.28); }
+    
+    /* ---- Board viewport/world ---- */
+    #viewport{
+      position:absolute;
+      top: calc(var(--top) + env(safe-area-inset-top));
+      left:0; right:0; bottom: env(safe-area-inset-bottom);
+      overflow:hidden;
+      touch-action:none;
+      -webkit-tap-highlight-color: transparent;
+      z-index: 2;
+
+      /* dark base */
+      background-color: #0f1115;
+
+      /* DOTS (they will move via JS background-position) */
+      background-image: radial-gradient(circle, rgba(255,255,255,.10) 1px, transparent 1.8px);
+      background-size: 22px 22px;
+      background-position: 0px 0px;
+    }
+
+    
+    #world{
+      position:absolute;
+      left:0; top:0;
+      width:5000px;
+      height:5000px;
+      transform-origin: 0 0;
+    }
+    
+    /* ---- Notes ---- */
+    .note{
+      position:absolute;
+      width:340px;
+      min-height:170px;
+      border-radius:18px;
+      padding:12px;
+      box-shadow: 0 18px 55px rgba(0,0,0,.55);
+    
+      background:
+        radial-gradient(120% 90% at 10% 10%, rgba(255,255,255,.55), rgba(255,255,255,0) 55%),
+        linear-gradient(180deg, #fff9b8, #ffe888);
+      color:#1a1a1a;
+    
+      user-select:none;
+      cursor:grab;
+      -webkit-tap-highlight-color: transparent;
+      border: 1px solid rgba(0,0,0,.10);
+      transition: opacity .25s ease, transform .25s ease, filter .25s ease;
+    }
+    .note:active{ cursor:grabbing; }
+    .note.done{ opacity:.70; filter: grayscale(.18) saturate(.9); }
+    
+    .note.archived{
+      background: rgba(10,12,18,.62);
+      color:#d7dee6;
+      border: 1px dashed rgba(255,255,255,.20);
+      backdrop-filter: blur(10px) saturate(120%);
+    }
+    .note.trashed{
+      background: rgba(30,14,14,.70);
+      color:#ffd7d7;
+      border: 1px solid rgba(255,120,120,.22);
+    }
+    .note.archiving{
+      opacity:0;
+      transform: scale(.96);
+    }
+    
+    /* ---- NOTE HEADER (fixed layout, no weird stacking) ---- */
+    .note header{
+      display: grid;
+      grid-template-columns: 1fr auto; /* left grows, right tight */
+      gap: 10px;
+      align-items: start;
+      margin-bottom:10px;
+    }
+    
+    .note header .left{
+      display: grid;
+      grid-template-columns: auto 1fr; /* checkbox + content */
+      gap: 10px;
+      align-items: start;
+      min-width: 0;
+    }
+    
+    .note header .right{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      justify-content:flex-end;
+      flex-wrap: nowrap; /* KEY */
+    }
+    
+    .note header .right .btn{
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+      box-shadow: none;
+    }
+    
+    .note header .right .archBtn{
+      width: 36px;
+      padding: 8px 0;
+      display:inline-flex;
+      justify-content:center;
+    }
+    
+    .note .doneCheck{
+      width:18px;
+      height:18px;
+      margin-top:2px;
+      accent-color: #7e00fe;
+    }
+    
+    .pill{
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      background: rgba(0,0,0,.10);
+      white-space:nowrap;
+    }
+    
+    .kv{
+      background: rgba(0,0,0,.07);
+      border-radius: 12px;
+      padding: 9px;
+      border: 1px solid rgba(0,0,0,.06);
+    }
+    .note.archived .kv{ background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.10); }
+    .note.trashed .kv{ background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.10); }
+    
+    .k{ font-size:11px; opacity:.75; margin-bottom:2px; }
+    .v{ font-size:14px; line-height:1.25; word-break:break-word; }
+    
+    .grid3{
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:8px;
+      margin-top:8px;
+    }
+    .spacer{ height: 6px; }
+    
+    /* ---- Modal ---- */
+    .modalBackdrop{
+      position:fixed; inset:0;
+      background: rgba(0,0,0,.60);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100;
+      padding:18px;
+      padding-top: calc(18px + env(safe-area-inset-top));
+      padding-bottom: calc(18px + env(safe-area-inset-bottom));
+      backdrop-filter: blur(8px);
+    }
+    
+    .modal{
+      width:min(720px, 96vw);
+      max-height: calc(100dvh - 36px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+      overflow:auto;
+    
+      background: rgba(10,10,16,.72);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 20px;
+    
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px) saturate(120%);
+      -webkit-backdrop-filter: blur(14px) saturate(120%);
+      padding:14px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .modal h2{ margin:0 0 10px 0; font-size:18px; }
+    
+    .field{
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius:16px;
+      padding:10px;
+      margin-top:10px;
+    }
+    .field label{
+      display:block;
+      font-size:12px;
+      opacity:.85;
+      margin-bottom:6px;
+    }
+    .field input[type="text"]{
+      width:100%;
+      padding:10px;
+      border-radius:14px;
+      border: 1px solid rgba(255,255,255,.10);
+      outline:none;
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+    }
+    
+    .checkline{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-top:10px;
+      padding:10px;
+      border-radius:16px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.06);
+    }
+    
+    .formRow3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap:10px;
+      margin-top:10px;
+    }
+    
+    .modalActions{
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      margin-top:14px;
+      flex-wrap: wrap;
+    }
+    
+    .itemRow{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr auto;
+      gap:10px;
+      margin-top:10px;
+      align-items:center;
+    }
+    .itemRow input{
+      width:100%;
+      padding:10px;
+      border-radius:14px;
+      border: 1px solid rgba(255,255,255,.10);
+      outline:none;
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+    }
+    .smallBtn{ padding:8px 10px; border-radius:14px; }
+    
+    #searchBox{
+      min-width: 180px;
+      background: rgba(255,255,255,.08);
+    }
+    
+    @media (max-width: 700px){
+      .note{ width:320px; }
+      .formRow3{ grid-template-columns: 1fr; }
+    
+      .modalBackdrop{ padding: 0; }
+      .modal{
+        width: 100vw;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom));
+      }
+    }
+    
+    @media (prefers-reduced-motion: reduce){
+      button, input, select, .note { transition: none; }
+    }
+    </style>
+    
+</head>
+
+<body>
+  <div class="topbar" id="topbar">
+    <button id="addBtn" class="btn primary">+ Dodaj</button>
+
+    <select id="viewSel" class="viewSelect">
+      <option value="magazyn">Magazyn</option>
+      <option value="biuro">Biuro</option>
+    </select>
+
+    <input id="searchBox" type="text" placeholder="🔎 Szukaj (klient, dzianina, kolor, kurier…)" />
+
+    <select id="statusFilter" class="viewSelect" title="Filtr statusu">
+      <option value="all">Wszystkie</option>
+      <option value="todo">Tylko niezrobione</option>
+      <option value="done">Tylko zrobione</option>
+    </select>
+
+    <button id="trashBtn" class="btn">Kosz: OFF</button>
+    <button id="emptyTrashBtn" class="btn danger" style="display:none;">Opróżnij kosz</button>
+
+    <span class="muted">
+      <span id="dot" class="statusDot offline"></span>
+      <span id="status">łączenie…</span>
+    </span>
+
+    <button id="zoomOutBtn" class="btn">−</button>
+    <button id="zoomInBtn" class="btn">+</button>
+    <button id="centerBtn" class="btn">Center</button>
+
+    <button id="archiveBtn" class="btn">Archiwum: OFF</button>
+    <button id="fsBtn" class="btn">Pełny Ekran</button>
+    <button id="chatBtn" class="btn">Chat</button>
+  </div>
+
+  <div id="viewport">
+    <div id="world"></div>
+  </div>
+
+  <!-- Modal -->
+  <div id="backdrop" class="modalBackdrop">
+    <div class="modal">
+      <h2 id="modalTitle">Dodaj notatkę</h2>
+
+      <div class="field">
+        <label>Klient</label>
+        <input id="f_klient" type="text" placeholder="np. Firma XYZ" />
+      </div>
+
+      <div class="checkline">
+        <input id="f_przedplata" type="checkbox" />
+        <label for="f_przedplata" style="margin:0; cursor:pointer;">Czy przedpłata?</label>
+      </div>
+
+      <div class="field">
+        <label>Pozycje (Dzianina / Kolor / Ilość)</label>
+        <div id="items"></div>
+        <button id="addItemBtn" class="btn" type="button" style="margin-top:10px;">+ Dodaj pozycję</button>
+      </div>
+
+      <div class="formRow3">
+        <div class="field">
+          <label>Kurier</label>
+          <input id="f_kurier" type="text" placeholder="np. DPD / InPost / Raben" />
+        </div>
+        <div class="field">
+          <label>Waga przesyłki</label>
+          <input id="f_waga" type="text" placeholder="np. 18.4 kg" />
+        </div>
+        <div class="field">
+          <label>Dodatkowe informacje</label>
+          <input id="f_info" type="text" placeholder="opcjonalnie" />
+        </div>
+      </div>
+
+      <div class="checkline">
+        <input id="f_done" type="checkbox" />
+        <label for="f_done" style="margin:0; cursor:pointer;">Zrobione?</label>
+      </div>
+
+      <div class="modalActions">
+        <button id="cancelBtn" class="btn">Anuluj</button>
+        <button id="deleteBtn" class="btn danger" style="display:none;">Usuń</button>
+        <button id="saveBtn" class="btn primary">Zapisz</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat panel -->
+  <div id="chatPanel" style="
+    position:fixed; right:10px; bottom:10px;
+    width:min(360px, 92vw);
+    height: min(420px, 60vh);
+    background: rgba(0,0,0,.72);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:16px;
+    backdrop-filter: blur(10px);
+    display:none;
+    z-index:200;
+    overflow:hidden;
+  ">
+    <div style="display:flex; gap:8px; align-items:center; padding:10px; border-bottom:1px solid rgba(255,255,255,.10);">
+      <b style="flex:1">Chat</b>
+      <button id="chatCloseBtn" class="btn">✕</button>
+    </div>
+
+    <div id="chatMsgs" style="padding:10px; height: calc(100% - 108px); overflow:auto; font-size:14px;"></div>
+
+    <div style="padding:10px; border-top:1px solid rgba(255,255,255,.10); display:flex; gap:8px;">
+      <input id="chatName" type="text" placeholder="Twoje imię (opcjonalnie)" style="width:40%; background:rgba(255,255,255,.10); color:#eee;">
+      <input id="chatText" type="text" placeholder="Wiadomość…" style="flex:1; background:rgba(255,255,255,.10); color:#eee;">
+      <button id="chatSendBtn" class="btn primary">Send</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    window.addEventListener("load", () => setTimeout(() => window.scrollTo(0, 1), 50));
+
+    const socket = io();
+
+    const viewport = document.getElementById("viewport");
+    const world = document.getElementById("world");
+
+    const statusEl = document.getElementById("status");
+    const dotEl = document.getElementById("dot");
+
+    const addBtn = document.getElementById("addBtn");
+    const viewSel = document.getElementById("viewSel");
+    let currentView = viewSel.value;
+
+    // Search + status filter
+    const searchBox = document.getElementById("searchBox");
+    const statusFilter = document.getElementById("statusFilter");
+    let searchQ = "";
+    let statusMode = "all";
+
+    searchBox.addEventListener("input", () => {
+      searchQ = (searchBox.value || "").trim().toLowerCase();
+      rerenderAll();
+    });
+    statusFilter.addEventListener("change", () => {
+      statusMode = statusFilter.value;
+      rerenderAll();
+    });
+
+    // Trash toggle
+    const trashBtn = document.getElementById("trashBtn");
+    const emptyTrashBtn = document.getElementById("emptyTrashBtn");
+    let showTrash = false;
+
+    function refreshTrashUI(){
+      trashBtn.textContent = showTrash ? "Kosz: ON" : "Kosz: OFF";
+      emptyTrashBtn.style.display = showTrash ? "inline-block" : "none";
+    }
+    refreshTrashUI();
+
+    trashBtn.onclick = () => { showTrash = !showTrash; refreshTrashUI(); rerenderAll(); };
+    emptyTrashBtn.onclick = () => {
+      if (!confirm("Na pewno opróżnić kosz? (trwałe usunięcie)")) return;
+      socket.emit("trash:empty");
+    };
+
+    // Archive toggle (single)
+    const archiveBtn = document.getElementById("archiveBtn");
+    let showArchived = false;
+    function refreshArchiveBtn(){ archiveBtn.textContent = showArchived ? "Archiwum: ON" : "Archiwum: OFF"; }
+    refreshArchiveBtn();
+    archiveBtn.onclick = () => { showArchived = !showArchived; refreshArchiveBtn(); rerenderAll(); };
+
+    // modal refs
+    const backdrop = document.getElementById("backdrop");
+    const modalTitle = document.getElementById("modalTitle");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const saveBtn = document.getElementById("saveBtn");
+    const deleteBtn = document.getElementById("deleteBtn");
+
+    const f_klient = document.getElementById("f_klient");
+    const f_przedplata = document.getElementById("f_przedplata");
+    const f_kurier = document.getElementById("f_kurier");
+    const f_waga = document.getElementById("f_waga");
+    const f_info = document.getElementById("f_info");
+    const f_done = document.getElementById("f_done");
+
+    // multi items
+    const itemsEl = document.getElementById("items");
+    const addItemBtn = document.getElementById("addItemBtn");
+
+    // zoom controls
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const centerBtn = document.getElementById("centerBtn");
+
+    // chat refs
+    const chatBtn = document.getElementById("chatBtn");
+    const chatPanel = document.getElementById("chatPanel");
+    const chatCloseBtn = document.getElementById("chatCloseBtn");
+    const chatMsgs = document.getElementById("chatMsgs");
+    const chatName = document.getElementById("chatName");
+    const chatText = document.getElementById("chatText");
+    const chatSendBtn = document.getElementById("chatSendBtn");
+
+    const notes = new Map();
+    let editingId = null;
+
+    // Bring-to-front (sync)
+    let zCounter = 0;
+    function bumpZ(noteId){
+      zCounter++;
+      const el = document.getElementById("note-" + noteId);
+      if (el) el.style.zIndex = String(zCounter);
+      socket.emit("note:update", { id: noteId, z: zCounter });
+    }
+
+    // ---------- Camera (pan/zoom) ----------
+    let cam = { x: 20, y: 20, z: 1.0 };
+
+    function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+    function applyCam(){
+      cam.z = clamp(cam.z, 0.35, 2.5);
+      world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`;
+
+      // dots move with pan, not with zoom
+      const parallax = 0.9;
+
+      // convert screen translate -> world offset (removes zoom influence)
+      const ox = cam.x / cam.z;
+      const oy = cam.y / cam.z;
+
+      viewport.style.backgroundPosition =
+        `${Math.round(ox * parallax)}px ${Math.round(oy * parallax)}px`;
+    }
+
+    function zoomAt(factor, clientX, clientY){
+      const rect = viewport.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+
+      const prevZ = cam.z;
+      const nextZ = clamp(prevZ * factor, 0.35, 2.5);
+
+      const wx = (px - cam.x) / prevZ;
+      const wy = (py - cam.y) / prevZ;
+
+      cam.z = nextZ;
+      cam.x = px - wx * nextZ;
+      cam.y = py - wy * nextZ;
+      applyCam();
+    }
+
+    zoomInBtn.onclick = () => zoomAt(1.15, viewport.clientWidth/2, viewport.clientHeight/2);
+    zoomOutBtn.onclick = () => zoomAt(1/1.15, viewport.clientWidth/2, viewport.clientHeight/2);
+    centerBtn.onclick = () => { cam = { x: 20, y: 20, z: 1.0 }; applyCam(); };
+
+    applyCam();
+
+    // ---------- Board interaction ----------
+    let isDraggingNote = false;
+
+    let panning = false;
+    let panStart = { x: 0, y: 0, camX: 0, camY: 0 };
+
+    const pointers = new Map();
+    let pinch = { active:false, id1:null, id2:null, d0:0, z0:1 };
+
+    function dist(a,b){
+      const dx = a.clientX - b.clientX;
+      const dy = a.clientY - b.clientY;
+      return Math.hypot(dx,dy);
+    }
+    function mid(a,b){
+      return { x: (a.clientX+b.clientX)/2, y: (a.clientY+b.clientY)/2 };
+    }
+
+    viewport.addEventListener("pointerdown", (e) => {
+      pointers.set(e.pointerId, e);
+
+      if (e.target.closest("input, textarea, select, button, label")) return;
+
+      if (pointers.size === 2) {
+        const [p1,p2] = [...pointers.values()];
+        pinch.active = true;
+        pinch.id1 = p1.pointerId;
+        pinch.id2 = p2.pointerId;
+        pinch.d0 = dist(p1,p2);
+        pinch.z0 = cam.z;
+        panning = false;
+        return;
+      }
+
+      const onNote = !!e.target.closest(".note");
+
+      if (!onNote && !isDraggingNote) {
+        panning = true;
+        viewport.setPointerCapture(e.pointerId);
+        panStart = { x: e.clientX, y: e.clientY, camX: cam.x, camY: cam.y };
+      }
+    });
+
+    viewport.addEventListener("pointermove", (e) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, e);
+
+      if (pinch.active && pointers.size === 2) {
+        const p1 = pointers.get(pinch.id1);
+        const p2 = pointers.get(pinch.id2);
+        if (!p1 || !p2) return;
+
+        const d = dist(p1,p2);
+        const factor = d / pinch.d0;
+        const targetZ = clamp(pinch.z0 * factor, 0.35, 2.5);
+
+        const m = mid(p1,p2);
+        zoomAt(targetZ / cam.z, m.x, m.y);
+        return;
+      }
+
+      if (!panning || isDraggingNote) return;
+
+      cam.x = panStart.camX + (e.clientX - panStart.x);
+      cam.y = panStart.camY + (e.clientY - panStart.y);
+      applyCam();
+    });
+
+    function endPointer(e){
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch.active = false;
+      panning = false;
+    }
+    viewport.addEventListener("pointerup", endPointer);
+    viewport.addEventListener("pointercancel", endPointer);
+
+    viewport.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.10 : 1 / 1.10;
+      zoomAt(zoomFactor, e.clientX, e.clientY);
+    }, { passive: false });
+
+    // ---------- Socket ----------
+    socket.on("connect", () => {
+      statusEl.textContent = "połączono";
+      dotEl.classList.remove("offline");
+      dotEl.classList.add("online");
+
+      socket.emit("chat:join");
+    });
+    socket.on("disconnect", () => {
+      statusEl.textContent = "rozłączono";
+      dotEl.classList.remove("online");
+      dotEl.classList.add("offline");
+    });
+
+    socket.on("notes:init", (arr) => {
+      world.innerHTML = "";
+      notes.clear();
+
+      // compute zCounter from notes (so bring-to-front keeps order)
+      const maxZ = Math.max(0, ...(arr || []).map(n => Number(n.z || 0)));
+      zCounter = maxZ;
+
+      (arr || []).forEach(upsert);
+      rerenderAll();
+    });
+
+    socket.on("note:upsert", (note) => upsert(note));
+    socket.on("note:delete", ({ id }) => {
+      const el = document.getElementById("note-" + id);
+      if (el) el.remove();
+      notes.delete(id);
+    });
+
+    // chat events
+    socket.on("chat:init", (arr) => {
+      chatMsgs.innerHTML = "";
+      (arr || []).forEach(addChatMsg);
+      scrollChatToBottom();
+    });
+    socket.on("chat:new", (m) => {
+      addChatMsg(m);
+      scrollChatToBottom();
+    });
+
+    // ---------- UI actions ----------
+    viewSel.addEventListener("change", () => {
+      currentView = viewSel.value;
+      rerenderAll();
+    });
+
+    addBtn.onclick = () => openModalCreate();
+    cancelBtn.onclick = closeModal;
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeModal(); });
+
+    saveBtn.onclick = () => {
+      const payload = readForm();
+      if (!payload) return;
+
+      if (editingId) {
+        socket.emit("note:update", { id: editingId, ...payload });
+      } else {
+        payload.x = 120 + Math.random() * 220;
+        payload.y = 120 + Math.random() * 180;
+        payload.z = ++zCounter;
+        socket.emit("note:create", payload);
+      }
+      closeModal();
+    };
+
+    deleteBtn.onclick = () => {
+      if (!editingId) return;
+      // From modal: move to trash (not permanent)
+      socket.emit("note:update", { id: editingId, trashed: true });
+      closeModal();
+    };
+
+    // chat open/close/send
+    chatBtn.onclick = () => {
+      chatPanel.style.display = (chatPanel.style.display === "block") ? "none" : "block";
+      if (chatPanel.style.display === "block") setTimeout(() => chatText.focus(), 0);
+    };
+    chatCloseBtn.onclick = () => { chatPanel.style.display = "none"; };
+
+    function sendChat(){
+      const text = (chatText.value || "").trim();
+      if (!text) return;
+      socket.emit("chat:send", { name: (chatName.value || "").trim(), text });
+      chatText.value = "";
+      chatText.focus();
+    }
+    chatSendBtn.onclick = sendChat;
+    chatText.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+
+    // ---------- Form helpers ----------
+    addItemBtn.onclick = () => addItemRow({ dzianina:"", kolor:"", ilosc:"" });
+
+    function addItemRow(item){
+      const row = document.createElement("div");
+      row.className = "itemRow";
+      row.innerHTML = `
+        <input class="i_dz" type="text" placeholder="Dzianina" value="${escAttr(item.dzianina || "")}">
+        <input class="i_ko" type="text" placeholder="Kolor" value="${escAttr(item.kolor || "")}">
+        <input class="i_il" type="text" placeholder="Ilość" value="${escAttr(item.ilosc || "")}">
+        <button class="btn danger smallBtn" type="button">Usuń</button>
+      `;
+      row.querySelector("button").onclick = () => row.remove();
+      itemsEl.appendChild(row);
+    }
+
+    function setItemsToUI(items){
+      itemsEl.innerHTML = "";
+      const arr = (Array.isArray(items) && items.length) ? items : [{ dzianina:"", kolor:"", ilosc:"" }];
+      arr.forEach(addItemRow);
+    }
+
+    function getItemsFromUI(){
+      const rows = [...itemsEl.querySelectorAll(".itemRow")];
+      const items = rows.map(r => ({
+        dzianina: r.querySelector(".i_dz").value.trim(),
+        kolor: r.querySelector(".i_ko").value.trim(),
+        ilosc: r.querySelector(".i_il").value.trim(),
+      })).filter(x => x.dzianina || x.kolor || x.ilosc);
+      return items.length ? items : [{ dzianina:"", kolor:"", ilosc:"" }];
+    }
+
+    function readForm(){
+      return {
+        klient: f_klient.value.trim(),
+        przedplata: f_przedplata.checked,
+        pozycje: getItemsFromUI(),
+        kurier: f_kurier.value.trim(),
+        waga: f_waga.value.trim(),
+        info: f_info.value.trim(),
+        done: f_done.checked,
+      };
+    }
+
+    function fillForm(note){
+      f_klient.value = note.klient || "";
+      f_przedplata.checked = !!note.przedplata;
+      setItemsToUI(note.pozycje);
+      f_kurier.value = note.kurier || "";
+      f_waga.value = note.waga || "";
+      f_info.value = note.info || "";
+      f_done.checked = !!note.done;
+    }
+
+    function openModalCreate(){
+      editingId = null;
+      modalTitle.textContent = "Dodaj notatkę";
+      deleteBtn.style.display = "none";
+
+      fillForm({
+        klient:"",
+        przedplata:false,
+        pozycje:[{ dzianina:"", kolor:"", ilosc:"" }],
+        kurier:"",
+        waga:"",
+        info:"",
+        done:false
+      });
+
+      backdrop.style.display = "flex";
+      setTimeout(() => f_klient.focus(), 0);
+    }
+
+    function openModalEdit(noteId){
+      const note = notes.get(noteId);
+      if (!note) return;
+      editingId = noteId;
+      modalTitle.textContent = "Edytuj notatkę";
+      deleteBtn.style.display = "inline-block";
+      deleteBtn.textContent = "Do kosza";
+      fillForm(note);
+      backdrop.style.display = "flex";
+      setTimeout(() => f_klient.focus(), 0);
+    }
+
+    function closeModal(){
+      backdrop.style.display = "none";
+      editingId = null;
+    }
+
+    // ---------- Filtering ----------
+    function noteMatchesSearch(note){
+      if (!searchQ) return true;
+
+      const parts = [];
+      parts.push(note.klient || "");
+      parts.push(note.kurier || "");
+      parts.push(note.waga || "");
+      parts.push(note.info || "");
+
+      const items = Array.isArray(note.pozycje) ? note.pozycje : [];
+      for (const it of items){
+        parts.push(it.dzianina || "");
+        parts.push(it.kolor || "");
+        parts.push(it.ilosc || "");
+      }
+
+      const hay = parts.join(" ").toLowerCase();
+      return hay.includes(searchQ);
+    }
+
+    function noteMatchesStatus(note){
+      if (statusMode === "all") return true;
+      if (statusMode === "todo") return !note.done;
+      if (statusMode === "done") return !!note.done;
+      return true;
+    }
+
+    function isVisible(note){
+      // Trash view is exclusive: ON shows only trashed, OFF hides trashed
+      if (showTrash) {
+        if (!note.trashed) return false;
+      } else {
+        if (note.trashed) return false;
+      }
+
+      // Archived notes hidden unless Archive ON (but only when not in trash)
+      if (!showTrash && !showArchived && note.archived) return false;
+
+      if (!noteMatchesStatus(note)) return false;
+      if (!noteMatchesSearch(note)) return false;
+
+      return true;
+    }
+
+    // ---------- Rendering ----------
+    function upsert(note){
+      let pozycje = Array.isArray(note.pozycje) ? note.pozycje : [];
+      if (!pozycje.length && (note.dzianina || note.kolor || note.ilosc)) {
+        pozycje = [{ dzianina: note.dzianina ?? "", kolor: note.kolor ?? "", ilosc: note.ilosc ?? "" }];
+      }
+
+      const normalized = {
+        id: note.id,
+        klient: note.klient ?? "",
+        przedplata: !!note.przedplata,
+        pozycje,
+        kurier: note.kurier ?? "",
+        waga: note.waga ?? "",
+        info: note.info ?? "",
+        done: !!note.done,
+        archived: !!note.archived,
+        trashed: !!note.trashed,
+        x: Number(note.x ?? 80),
+        y: Number(note.y ?? 80),
+        z: Number(note.z ?? 0),
+      };
+
+      notes.set(normalized.id, normalized);
+
+      let el = document.getElementById("note-" + normalized.id);
+      if (!el) {
+        el = renderNote(normalized);
+        world.appendChild(el);
+      }
+
+      el.style.left = normalized.x + "px";
+      el.style.top  = normalized.y + "px";
+      el.style.zIndex = String(normalized.z || 0);
+
+      el.classList.toggle("done", normalized.done);
+      el.classList.toggle("archived", normalized.archived);
+      el.classList.toggle("trashed", normalized.trashed);
+
+      el.style.display = isVisible(normalized) ? "block" : "none";
+
+      updateNoteContent(el, normalized);
+    }
+
+    function rerenderAll(){
+      for (const [id, note] of notes.entries()){
+        const el = document.getElementById("note-" + id);
+        if (!el) continue;
+        el.style.display = isVisible(note) ? "block" : "none";
+        updateNoteContent(el, note);
+      }
+    }
+
+    function renderItems(note){
+      const items = Array.isArray(note.pozycje) ? note.pozycje : [];
+      if (!items.length) return `<div style="opacity:.6">(brak pozycji)</div>`;
+
+      return items.map((it, idx) => `
+        <div class="kv" style="margin-top:${idx?8:0}px;">
+          <div class="k">Pozycja ${idx+1}</div>
+          <div class="v">
+            <b>Dzianina:</b> ${esc(it.dzianina)}<br>
+            <b>Kolor:</b> ${esc(it.kolor)}<br>
+            <b>Ilość:</b> ${esc(it.ilosc)}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function updateNoteContent(el, note){
+      const body = el.querySelector(".body");
+      const title = el.querySelector(".titleText");
+      const przed = el.querySelector(".przedBadge");
+
+      // Update archive button icon + title
+      const archBtn = el.querySelector(".archBtn");
+      if (archBtn){
+        // In trash: archive button becomes "Restore"
+        if (note.trashed){
+          archBtn.textContent = "♻";
+          archBtn.title = "Przywróć z kosza";
+        } else {
+          archBtn.textContent = note.archived ? "♻" : "🗄";
+          archBtn.title = note.archived ? "Przywróć" : "Archiwizuj";
+        }
+      }
+
+      // Delete button label depends on trash state
+      const delBtn = el.querySelector(".delBtn");
+      if (delBtn){
+        delBtn.textContent = note.trashed ? "🗑 Usuń" : "🗑 Do kosza";
+        delBtn.title = note.trashed ? "Usuń trwale" : "Przenieś do kosza";
+      }
+
+      title.textContent = note.klient ? note.klient : "(brak klienta)";
+      przed.textContent = note.przedplata ? "PRZEDPŁATA" : "bez przedpłaty";
+      przed.style.opacity = note.przedplata ? "1" : ".75";
+
+      if (currentView === "magazyn") {
+        body.innerHTML = `
+          ${renderItems(note)}
+          <div class="spacer"></div>
+          <div class="grid3">
+            ${kv("Kurier", esc(note.kurier))}
+            ${kv("Waga", esc(note.waga))}
+            ${kv("Dodatkowe", esc(note.info))}
+          </div>
+        `;
+      } else {
+        body.innerHTML = `
+          <div class="kv">
+            <div class="k">Klient</div>
+            <div class="v">${esc(note.klient)}</div>
+          </div>
+          ${renderItems(note)}
+          <div class="spacer"></div>
+          <div class="grid3">
+            ${kv("Kurier", esc(note.kurier))}
+            ${kv("Waga przesyłki", esc(note.waga))}
+            ${kv("Dodatkowe", esc(note.info))}
+          </div>
+        `;
+      }
+    }
+
+    function renderNote(note){
+      const el = document.createElement("div");
+      el.className = "note";
+      el.id = "note-" + note.id;
+
+      el.innerHTML = `
+        <header>
+          <div class="left">
+            <input class="doneCheck" type="checkbox" ${note.done ? "checked" : ""} title="Zrobione" />
+            <div style="min-width:0">
+              <div class="titleText" style="font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+              <div class="pill przedBadge" style="display:inline-block; margin-top:6px;"></div>
+            </div>
+          </div>
+          <div class="right">
+            <button class="btn archBtn" title="Archiwizuj / Przywróć">🗄</button>
+            <button class="btn editBtn" title="Edytuj">Edytuj</button>
+            <button class="btn danger delBtn" title="Do kosza">🗑 Do kosza</button>
+          </div>
+        </header>
+        <div class="body"></div>
+      `;
+
+      const doneCheck = el.querySelector(".doneCheck");
+      doneCheck.addEventListener("change", () => {
+        socket.emit("note:update", { id: note.id, done: doneCheck.checked });
+      });
+
+      el.querySelector(".editBtn").onclick = () => openModalEdit(note.id);
+
+      // Archive button:
+      // - if trashed -> restore from trash
+      // - else -> archive toggle (with animation on archive)
+      el.querySelector(".archBtn").onclick = () => {
+        const cur = notes.get(note.id) || note;
+
+        if (cur.trashed){
+          socket.emit("note:update", { id: note.id, trashed: false });
+          return;
+        }
+
+        const goingToArchive = !cur.archived;
+        if (goingToArchive) {
+          el.classList.add("archiving");
+          setTimeout(() => {
+            socket.emit("note:update", { id: note.id, archived: true });
+            el.classList.remove("archiving");
+          }, 200);
+        } else {
+          socket.emit("note:update", { id: note.id, archived: false });
+        }
+      };
+
+      // Delete button:
+      // - if not trashed -> move to trash
+      // - if trashed -> permanent delete
+      el.querySelector(".delBtn").onclick = () => {
+        const cur = notes.get(note.id) || note;
+
+        if (!cur.trashed){
+          socket.emit("note:update", { id: note.id, trashed: true });
+          return;
+        }
+
+        if (confirm("Usunąć TRWALE z kosza?")) {
+          socket.emit("note:delete", { id: note.id });
+        }
+      };
+
+      let dragging = false;
+      let start = null;
+
+      el.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("input, textarea, select, button, label")) return;
+
+        e.stopPropagation();
+        dragging = true;
+        isDraggingNote = true;
+
+        // bring-to-front (sync)
+        bumpZ(note.id);
+
+        el.style.cursor = "grabbing";
+        el.setPointerCapture(e.pointerId);
+
+        const cur = notes.get(note.id) || note;
+        start = { px: e.clientX, py: e.clientY, nx: cur.x, ny: cur.y };
+      });
+
+      el.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+
+        const dx = (e.clientX - start.px) / cam.z;
+        const dy = (e.clientY - start.py) / cam.z;
+
+        const x = start.nx + dx;
+        const y = start.ny + dy;
+
+        el.style.left = x + "px";
+        el.style.top  = y + "px";
+      });
+
+      function endDrag(){
+        if (!dragging) return;
+        dragging = false;
+        isDraggingNote = false;
+        el.style.cursor = "grab";
+
+        const left = parseFloat(el.style.left) || 0;
+        const top  = parseFloat(el.style.top) || 0;
+
+        socket.emit("note:update", { id: note.id, x: left, y: top });
+      }
+
+      el.addEventListener("pointerup", endDrag);
+      el.addEventListener("pointercancel", endDrag);
+
+      updateNoteContent(el, note);
+      return el;
+    }
+
+    // ---------- Chat helpers ----------
+    function addChatMsg(m){
+      const name = esc((m && m.name) ? m.name : "Anon");
+      const text = esc((m && m.text) ? m.text : "");
+      const ts = m && m.ts ? new Date(m.ts).toLocaleTimeString() : "";
+      const div = document.createElement("div");
+      div.style.marginBottom = "8px";
+      div.innerHTML = `<span style="opacity:.7;font-size:12px;">${ts}</span> <b>${name}:</b> ${text}`;
+      chatMsgs.appendChild(div);
+    }
+    function scrollChatToBottom(){
+      chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    }
+
+    // ---------- helpers ----------
+    function kv(k, v){
+      return `
+        <div class="kv">
+          <div class="k">${k}</div>
+          <div class="v">${v || "<span style='opacity:.6'>(puste)</span>"}</div>
+        </div>
+      `;
+    }
+
+    function esc(s){
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function escAttr(s){
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+  </script>
+
+  <script src="/fullscreen.js"></script>
+</body>
+</html>
