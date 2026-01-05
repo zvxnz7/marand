@@ -18,6 +18,35 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const CHAT_FILE = path.join(DATA_DIR, "chat.json");
 let chat = [];
 
+/* =========================
+   ✅ DATE HELPERS (NEW)
+   ========================= */
+function toMs(ts) {
+  // Accept:
+  // - number ms
+  // - ISO string
+  // - anything else -> null
+  if (typeof ts === "number" && Number.isFinite(ts)) return ts;
+  if (typeof ts === "string" && ts.trim()) {
+    const t = Date.parse(ts);
+    if (Number.isFinite(t)) return t;
+  }
+  return null;
+}
+
+function sanitizeDue(v) {
+  // due is stored as "YYYY-MM-DD" or "".
+  if (v === null || v === undefined) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  // strict format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  // basic calendar validity
+  const t = Date.parse(s + "T00:00:00Z");
+  if (!Number.isFinite(t)) return "";
+  return s;
+}
+
 function loadChat() {
   try {
     chat = JSON.parse(fs.readFileSync(CHAT_FILE, "utf-8"));
@@ -79,12 +108,21 @@ function normalizeNote(note) {
 
   if (note.z === undefined) note.z = 0;
 
+  // ✅ NEW: dates
+  if (note.createdAt === undefined || note.createdAt === null) note.createdAt = Date.now();
+  else {
+    const ms = toMs(note.createdAt);
+    note.createdAt = ms ?? Date.now();
+  }
+
+  if (note.due === undefined || note.due === null) note.due = "";
+  note.due = sanitizeDue(note.due);
+
   // If trashed, we don't force anything else. (Trash is separate state.)
   // If not done, clear doneAt (but do NOT touch "archived" unless you want strict rule)
   if (!note.done) {
     note.doneAt = null;
     // keep archived as-is (so manual archive stays)
-    // if you want strict rule: note.archived = false;
   }
 
   // If done and missing doneAt, set it (covers old notes)
@@ -128,6 +166,8 @@ io.on("connection", (socket) => {
   socket.emit("notes:init", notes);
 
   socket.on("note:create", (payload) => {
+    const now = Date.now();
+
     const note = normalizeNote({
       id: nanoid(),
       klient: payload.klient ?? "",
@@ -136,10 +176,14 @@ io.on("connection", (socket) => {
       kurier: payload.kurier ?? "",
       waga: payload.waga ?? "",
       info: payload.info ?? "",
+
+      // ✅ NEW
+      due: sanitizeDue(payload.due),
+
       done: !!payload.done,
 
       archived: false,
-      doneAt: payload.done ? Date.now() : null,
+      doneAt: payload.done ? now : null,
 
       trashed: false,
       trashedAt: null,
@@ -149,8 +193,9 @@ io.on("connection", (socket) => {
       x: Number.isFinite(payload.x) ? payload.x : 80,
       y: Number.isFinite(payload.y) ? payload.y : 80,
 
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      // createdAt can come from client (ISO) or be set now
+      createdAt: toMs(payload.createdAt) ?? now,
+      updatedAt: now,
     });
 
     notes.push(note);
@@ -174,7 +219,6 @@ io.on("connection", (socket) => {
     if (payload.przedplata !== undefined) next.przedplata = !!payload.przedplata;
     if (payload.done !== undefined) next.done = !!payload.done;
     if (payload.archived !== undefined) next.archived = !!payload.archived;
-
     if (payload.trashed !== undefined) next.trashed = !!payload.trashed;
 
     if (payload.x !== undefined) next.x = Number(payload.x);
@@ -185,6 +229,11 @@ io.on("connection", (socket) => {
       next.pozycje = Array.isArray(payload.pozycje) ? payload.pozycje : [];
     }
 
+    // ✅ NEW: due updates
+    if (payload.due !== undefined) {
+      next.due = sanitizeDue(payload.due);
+    }
+
     // DONE rules: manage doneAt
     if (payload.done !== undefined) {
       const newDone = !!payload.done;
@@ -192,11 +241,9 @@ io.on("connection", (socket) => {
 
       if (newDone && !wasDone) {
         next.doneAt = Date.now();
-        // do NOT force archived off unless you want
       }
       if (!newDone) {
         next.doneAt = null;
-        // optional: next.archived = false;
       }
     }
 

@@ -83,11 +83,7 @@
       -webkit-appearance: none;
       appearance: none;
 
-
       background-color: rgba(255,255,255,.06);
-
-      /* custom arrow */
-
       border: 1px solid rgba(255,255,255,.12);
     }
 
@@ -109,7 +105,6 @@
       color: rgba(255,255,255,.92);
       border-radius: 14px;
     }
-
 
     button{ cursor:pointer; }
     button:active{ transform: translateY(1px) scale(.99); }
@@ -159,14 +154,13 @@
       box-shadow: 0 0 12px rgba(0,0,0,.35);
     }
 
-    /* .online{ background: var(--good); box-shadow: 0 0 18px rgba(99,255,122,.35); } */
-    .online { 
-      background: var(--good); 
-      box-shadow: 0 0 5px var(--good), 0 0 20px var(--good); 
+    .online {
+      background: var(--good);
+      box-shadow: 0 0 5px var(--good), 0 0 20px var(--good);
     }
-    .offline{ 
-      background: var(--bad); 
-      box-shadow: 0 0 5px var(--bad), 0 0 20px var(--bad); 
+    .offline{
+      background: var(--bad);
+      box-shadow: 0 0 5px var(--bad), 0 0 20px var(--bad);
     }
 
     /* ---- Board viewport/world ---- */
@@ -396,7 +390,7 @@
 
     .itemRow{
       display:grid;
-      grid-template-columns: 1fr 1fr 1fr auto;
+      grid-template-columns: 1.2fr 1fr 0.8fr 0.9fr auto;
       gap:10px;
       margin-top:10px;
       align-items:center;
@@ -502,6 +496,34 @@
         border-radius: 0;
       }
     }
+
+    /* =========================================================
+       ✅ Edge chevrons overlay (V arrows to off-screen notes)
+       ========================================================= */
+    #edgeIndicators{
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 60; /* above viewport (2) + officePanel (50), below modal (100) */
+    }
+    .edgeChev{
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      opacity: .95;
+      filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
+      transform-origin: 50% 50%;
+      display: none;
+    }
+    .edgeChev::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-right: 3px solid rgba(255,255,255,.95);
+      border-bottom: 3px solid rgba(255,255,255,.95);
+      transform: rotate(45deg); /* makes a "V" */
+      border-radius: 1px;
+    }
   </style>
 </head>
 
@@ -543,6 +565,9 @@
     <div id="world"></div>
   </div>
 
+  <!-- ✅ Edge indicators overlay -->
+  <div id="edgeIndicators"></div>
+
   <!-- ✅ BIURO list panel -->
   <div id="officePanel">
     <div style="padding:12px; border-bottom:1px solid rgba(255,255,255,.10); display:flex; gap:10px; align-items:center;">
@@ -583,9 +608,14 @@
           <input id="f_waga" type="text" placeholder="np. 18.4 kg" />
         </div>
         <div class="field">
-          <label>Dodatkowe informacje</label>
-          <input id="f_info" type="text" placeholder="opcjonalnie" />
+          <label>Termin</label>
+          <input id="f_due" type="date" />
         </div>
+      </div>
+
+      <div class="field">
+        <label>Dodatkowe informacje</label>
+        <input id="f_info" type="text" placeholder="opcjonalnie" />
       </div>
 
       <div class="checkline">
@@ -649,6 +679,9 @@
     const officeList  = document.getElementById("officeList");
     const officeCount = document.getElementById("officeCount");
 
+    // ✅ Edge overlay
+    const edgeLayer = document.getElementById("edgeIndicators");
+
     // Search + status filter
     const searchBox = document.getElementById("searchBox");
     const statusFilter = document.getElementById("statusFilter");
@@ -700,6 +733,7 @@
     const f_kurier = document.getElementById("f_kurier");
     const f_waga = document.getElementById("f_waga");
     const f_info = document.getElementById("f_info");
+    const f_due = document.getElementById("f_due");
     const f_done = document.getElementById("f_done");
 
     // multi items
@@ -736,6 +770,7 @@
     let cam = { x: 20, y: 20, z: 1.0 };
 
     function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
     function applyCam(){
       cam.z = clamp(cam.z, 0.35, 2.5);
       world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`;
@@ -744,9 +779,11 @@
       const base = 22; // dot grid size at zoom = 1
       viewport.style.backgroundSize = `${base * cam.z}px ${base * cam.z}px`;
       viewport.style.backgroundPosition = `${cam.x}px ${cam.y}px`;
+
+      // ✅ keep edge arrows synced
+      updateEdgeChevrons();
     }
 
-    // ✅ FIX: zoomAt was missing in your code
     function zoomAt(factor, clientX, clientY){
       const prevZ = cam.z;
       const nextZ = clamp(prevZ * factor, 0.35, 2.5);
@@ -788,7 +825,6 @@
     }
 
     viewport.addEventListener("pointerdown", (e) => {
-      // If BIURO view is active, viewport is hidden anyway, but guard just in case:
       if (currentView === "biuro") return;
 
       pointers.set(e.pointerId, e);
@@ -874,12 +910,12 @@
       world.innerHTML = "";
       notes.clear();
 
-      // compute zCounter from notes (so bring-to-front keeps order)
       const maxZ = Math.max(0, ...(arr || []).map(n => Number(n.z || 0)));
       zCounter = maxZ;
 
       (arr || []).forEach(upsert);
       rerenderAll();
+      updateEdgeChevrons();
     });
 
     socket.on("note:upsert", (note) => upsert(note));
@@ -902,7 +938,6 @@
     });
 
     // ---------- UI actions ----------
-    // ✅ VIEW SWITCH: Magazyn = board, Biuro = list
     viewSel.addEventListener("change", () => {
       currentView = viewSel.value;
 
@@ -911,9 +946,9 @@
       viewport.style.display    = inOffice ? "none" : "block";
 
       rerenderAll();
+      updateEdgeChevrons();
     });
 
-    // ✅ initial view state
     officePanel.style.display = (currentView === "biuro") ? "block" : "none";
     viewport.style.display    = (currentView === "biuro") ? "none" : "block";
 
@@ -931,16 +966,18 @@
         payload.x = 120 + Math.random() * 220;
         payload.y = 120 + Math.random() * 180;
         payload.z = ++zCounter;
+        payload.createdAt = payload.createdAt || new Date().toISOString();
         socket.emit("note:create", payload);
       }
       closeModal();
+      updateEdgeChevrons();
     };
 
     deleteBtn.onclick = () => {
       if (!editingId) return;
-      // From modal: move to trash (not permanent)
       socket.emit("note:update", { id: editingId, trashed: true });
       closeModal();
+      updateEdgeChevrons();
     };
 
     // chat open/close/send
@@ -961,7 +998,7 @@
     chatText.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
     // ---------- Form helpers ----------
-    addItemBtn.onclick = () => addItemRow({ dzianina:"", kolor:"", ilosc:"" });
+    addItemBtn.onclick = () => addItemRow({ dzianina:"", kolor:"", ilosc:"", iloscPosiadana:"" });
 
     function addItemRow(item){
       const row = document.createElement("div");
@@ -970,6 +1007,7 @@
         <input class="i_dz" type="text" placeholder="Dzianina" value="${escAttr(item.dzianina || "")}">
         <input class="i_ko" type="text" placeholder="Kolor" value="${escAttr(item.kolor || "")}">
         <input class="i_il" type="text" placeholder="Ilość" value="${escAttr(item.ilosc || "")}">
+        <input class="i_ip" type="text" placeholder="Ilość posiadana" value="${escAttr(item.iloscPosiadana || "")}">
         <button class="btn danger smallBtn" type="button">Usuń</button>
       `;
       row.querySelector("button").onclick = () => row.remove();
@@ -978,7 +1016,7 @@
 
     function setItemsToUI(items){
       itemsEl.innerHTML = "";
-      const arr = (Array.isArray(items) && items.length) ? items : [{ dzianina:"", kolor:"", ilosc:"" }];
+      const arr = (Array.isArray(items) && items.length) ? items : [{ dzianina:"", kolor:"", ilosc:"", iloscPosiadana:"" }];
       arr.forEach(addItemRow);
     }
 
@@ -988,8 +1026,9 @@
         dzianina: r.querySelector(".i_dz").value.trim(),
         kolor: r.querySelector(".i_ko").value.trim(),
         ilosc: r.querySelector(".i_il").value.trim(),
+        iloscPosiadana: r.querySelector(".i_ip").value.trim(),
       })).filter(x => x.dzianina || x.kolor || x.ilosc);
-      return items.length ? items : [{ dzianina:"", kolor:"", ilosc:"" }];
+      return items.length ? items : [{ dzianina:"", kolor:"", ilosc:"", iloscPosiadana:"" }];
     }
 
     function readForm(){
@@ -1000,8 +1039,16 @@
         kurier: f_kurier.value.trim(),
         waga: f_waga.value.trim(),
         info: f_info.value.trim(),
+        due: (f_due.value || "").trim(),
         done: f_done.checked,
       };
+    }
+
+    function formatDatePL(iso){
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleDateString("pl-PL");
     }
 
     function fillForm(note){
@@ -1011,6 +1058,7 @@
       f_kurier.value = note.kurier || "";
       f_waga.value = note.waga || "";
       f_info.value = note.info || "";
+      f_due.value = (note.due || "");
       f_done.checked = !!note.done;
     }
 
@@ -1022,10 +1070,11 @@
       fillForm({
         klient:"",
         przedplata:false,
-        pozycje:[{ dzianina:"", kolor:"", ilosc:"" }],
+        pozycje:[{ dzianina:"", kolor:"", ilosc:"", iloscPosiadana:"" }],
         kurier:"",
         waga:"",
         info:"",
+        due:"",
         done:false
       });
 
@@ -1059,12 +1108,15 @@
       parts.push(note.kurier || "");
       parts.push(note.waga || "");
       parts.push(note.info || "");
+      parts.push(note.due || "");
+      parts.push(note.createdAt || "");
 
       const items = Array.isArray(note.pozycje) ? note.pozycje : [];
       for (const it of items){
         parts.push(it.dzianina || "");
         parts.push(it.kolor || "");
         parts.push(it.ilosc || "");
+        parts.push(it.iloscPosiadana || "");
       }
 
       const hay = parts.join(" ").toLowerCase();
@@ -1097,7 +1149,7 @@
     function upsert(note){
       let pozycje = Array.isArray(note.pozycje) ? note.pozycje : [];
       if (!pozycje.length && (note.dzianina || note.kolor || note.ilosc)) {
-        pozycje = [{ dzianina: note.dzianina ?? "", kolor: note.kolor ?? "", ilosc: note.ilosc ?? "" }];
+        pozycje = [{ dzianina: note.dzianina ?? "", kolor: note.kolor ?? "", ilosc: note.ilosc ?? "", iloscPosiadana: note.iloscPosiadana ?? "" }];
       }
 
       const normalized = {
@@ -1108,6 +1160,8 @@
         kurier: note.kurier ?? "",
         waga: note.waga ?? "",
         info: note.info ?? "",
+        createdAt: note.createdAt ?? null,
+        due: note.due ?? "",
         done: !!note.done,
         archived: !!note.archived,
         trashed: !!note.trashed,
@@ -1136,8 +1190,9 @@
 
       updateNoteContent(el, normalized);
 
-      // ✅ keep biuro list fresh
       if (currentView === "biuro") rerenderOfficeList();
+
+      updateEdgeChevrons();
     }
 
     function rerenderAll(){
@@ -1148,6 +1203,7 @@
         updateNoteContent(el, note);
       }
       rerenderOfficeList();
+      updateEdgeChevrons();
     }
 
     function renderItems(note){
@@ -1160,7 +1216,8 @@
           <div class="v">
             <b>Dzianina:</b> ${esc(it.dzianina)}<br>
             <b>Kolor:</b> ${esc(it.kolor)}<br>
-            <b>Ilość:</b> ${esc(it.ilosc)}
+            <b>Ilość:</b> ${esc(it.ilosc)}<br>
+            <b>Ilość posiadana:</b> ${esc(it.iloscPosiadana)}
           </div>
         </div>
       `).join("");
@@ -1170,6 +1227,18 @@
       const body = el.querySelector(".body");
       const title = el.querySelector(".titleText");
       const przed = el.querySelector(".przedBadge");
+
+      // ✅ FIX: you computed these before, but never used them
+      const created = note.createdAt ? new Date(note.createdAt).toLocaleString("pl-PL") : "";
+      const dueTxt = note.due ? formatDatePL(note.due) : "";
+
+      const metaLine = (created || dueTxt) ? `
+        <div style="margin:8px 0 10px 0; font-size:12px; opacity:.85;">
+          ${created ? `Dodano: <b>${esc(created)}</b>` : ``}
+          ${created && dueTxt ? ` &nbsp;•&nbsp; ` : ``}
+          ${dueTxt ? `Termin: <b>${esc(dueTxt)}</b>` : ``}
+        </div>
+      ` : ``;
 
       const archBtn = el.querySelector(".archBtn");
       if (archBtn){
@@ -1194,6 +1263,7 @@
 
       if (currentView === "magazyn") {
         body.innerHTML = `
+          ${metaLine}
           ${renderItems(note)}
           <div class="spacer"></div>
           <div class="grid3">
@@ -1204,6 +1274,7 @@
         `;
       } else {
         body.innerHTML = `
+          ${metaLine}
           <div class="kv">
             <div class="k">Klient</div>
             <div class="v">${esc(note.klient)}</div>
@@ -1312,6 +1383,8 @@
 
         el.style.left = x + "px";
         el.style.top  = y + "px";
+
+        updateEdgeChevrons();
       });
 
       function endDrag(){
@@ -1324,6 +1397,7 @@
         const top  = parseFloat(el.style.top) || 0;
 
         socket.emit("note:update", { id: note.id, x: left, y: top });
+        updateEdgeChevrons();
       }
 
       el.addEventListener("pointerup", endDrag);
@@ -1369,6 +1443,9 @@
         const archLabel = n.trashed ? "♻ Przywróć z kosza" : (n.archived ? "♻ Przywróć" : "🗄 Archiwizuj");
         const trashLabel = n.trashed ? "🗑 Usuń trwale" : "🗑 Do kosza";
 
+        // ✅ show due date in list meta (optional but useful)
+        const dueTxt = n.due ? formatDatePL(n.due) : "";
+
         return `
           <div class="officeCard ${n.done ? "done":""}">
             <div class="rowTop">
@@ -1381,6 +1458,7 @@
                   ${n.przedplata ? "PRZEDPŁATA" : "bez przedpłaty"}
                   • ${esc(n.kurier || "(brak kuriera)")}
                   • ${esc(n.waga || "(brak wagi)")}
+                  ${dueTxt ? ` • <b>Termin:</b> ${esc(dueTxt)}` : ``}
                 </div>
               </div>
               <button class="btn" data-act="bump" data-id="${n.id}" title="Podbij na górę">⬆</button>
@@ -1409,7 +1487,6 @@
       if (!cur) return;
 
       if (act === "edit") openModalEdit(id);
-
       if (act === "bump") bumpZ(id);
 
       if (act === "arch") {
@@ -1477,6 +1554,122 @@
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
     }
+
+    /* =========================================================
+       ✅ EDGE CHEVRONS (V arrows to off-screen notes)
+       ========================================================= */
+    function screenRectForViewport(){
+      return viewport.getBoundingClientRect();
+    }
+
+    function worldToScreen(wx, wy){
+      const vr = screenRectForViewport();
+      const sxInViewport = (wx * cam.z) + cam.x;
+      const syInViewport = (wy * cam.z) + cam.y;
+      return { x: vr.left + sxInViewport, y: vr.top + syInViewport };
+    }
+
+    function pointInsideRect(x, y, r, margin=0){
+      return (
+        x >= r.left - margin &&
+        x <= r.right + margin &&
+        y >= r.top - margin &&
+        y <= r.bottom + margin
+      );
+    }
+
+    function ensureChev(id){
+      const key = "edgeChev_" + id;
+      let el = document.getElementById(key);
+      if (!el){
+        el = document.createElement("div");
+        el.className = "edgeChev";
+        el.id = key;
+        edgeLayer.appendChild(el);
+      }
+      return el;
+    }
+
+    function hideAllChevs(){
+      edgeLayer.querySelectorAll(".edgeChev").forEach(e => e.style.display = "none");
+    }
+
+    function clamp01(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+    function clampToRect(x, y, r, pad=16){
+      const left = r.left + pad, right = r.right - pad;
+      const top  = r.top  + pad, bottom = r.bottom - pad;
+      return { x: clamp01(x, left, right), y: clamp01(y, top, bottom), left, right, top, bottom };
+    }
+
+    function updateEdgeChevrons(){
+      if (currentView !== "magazyn" || viewport.style.display === "none"){
+        hideAllChevs();
+        return;
+      }
+
+      const vr = screenRectForViewport();
+
+      hideAllChevs();
+
+      for (const [id, n] of notes.entries()){
+        if (!isVisible(n)) continue;
+
+        const noteEl = document.getElementById("note-" + id);
+        if (!noteEl || noteEl.style.display === "none") continue;
+
+        const w = noteEl.offsetWidth || 340;
+        const h = noteEl.offsetHeight || 170;
+
+        const wx = n.x + w/2;
+        const wy = n.y + h/2;
+
+        const sp = worldToScreen(wx, wy);
+
+        if (pointInsideRect(sp.x, sp.y, vr, 20)) continue;
+
+        const ROT_OFFSET = 270;
+        const pad = 16;
+
+        const cl = clampToRect(sp.x, sp.y, vr, pad);
+
+        const outL = (vr.left  + pad) - sp.x;
+        const outR = sp.x - (vr.right - pad);
+        const outT = (vr.top   + pad) - sp.y;
+        const outB = sp.y - (vr.bottom - pad);
+
+        let edge = null;
+        let best = 0;
+
+        if (outL > best){ best = outL; edge = "L"; }
+        if (outR > best){ best = outR; edge = "R"; }
+        if (outT > best){ best = outT; edge = "T"; }
+        if (outB > best){ best = outB; edge = "B"; }
+
+        if (!edge) continue;
+
+        let hitX = cl.x;
+        let hitY = cl.y;
+
+        if (edge === "L") hitX = cl.left;
+        if (edge === "R") hitX = cl.right;
+        if (edge === "T") hitY = cl.top;
+        if (edge === "B") hitY = cl.bottom;
+
+        const ang = Math.atan2(sp.y - hitY, sp.x - hitX);
+        const deg = ang * 180 / Math.PI;
+
+        const chev = ensureChev(id);
+        chev.style.display = "block";
+        chev.style.left = (hitX - 7) + "px";
+        chev.style.top  = (hitY - 7) + "px";
+
+        // ✅ FIX: set transform once (your previous code overwrote itself)
+        chev.style.transform = `rotate(${deg + ROT_OFFSET}deg)`;
+      }
+    }
+
+    window.addEventListener("resize", updateEdgeChevrons);
   </script>
 
   <script src="/fullscreen.js"></script>

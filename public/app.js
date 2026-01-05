@@ -43,3 +43,4 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "f" || e.key === "F") toggleFullscreen();
   if (e.key === "Enter") start();
 });
+
