@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 const path = require("path");
 const fs = require("fs");
 const { nanoid } = require("nanoid");
+const { execFile } = require("child_process");
 
 const app = express();
 const server = http.createServer(app);
@@ -11,6 +12,46 @@ const io = new Server(server);
 
 const PORT = 2115;
 
+/* =========================
+   UPDATE / RESTART (NO TOKEN)
+   ========================= */
+function runBat(batPath) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "cmd.exe",
+      ["/c", batPath],
+      { cwd: path.dirname(batPath) },
+      (err, stdout, stderr) => {
+        if (err) {
+          const msg = (stderr || stdout || err.message || "Unknown error")
+            .toString()
+            .trim();
+          return reject(new Error(msg));
+        }
+        resolve((stdout || "").toString().trim());
+      }
+    );
+  });
+}
+
+// ⚠️ OPEN ENDPOINT (NO AUTH)
+app.post("/admin/update", async (req, res) => {
+  try {
+    const bat = path.join(__dirname, "update_only.bat");
+    if (!fs.existsSync(bat)) {
+      return res.status(500).json({ ok: false, error: "update_only.bat not found" });
+    }
+
+    const output = await runBat(bat);
+    res.json({ ok: true, output });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+/* =========================
+   DATA
+   ========================= */
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "notes.json");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -89,8 +130,8 @@ app.get("/health", (_, res) => {
 /* =========================
    AUTO RULES
    ========================= */
-const ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;     // 24h after doneAt
-const TRASH_ARCHIVED_AFTER_MS = 14 * 24 * 60 * 60 * 1000; // 14 days archived
+const ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
+const TRASH_ARCHIVED_AFTER_MS = 14 * 24 * 60 * 60 * 1000;
 
 function normalizeItems(pozycje) {
   const arr = Array.isArray(pozycje) ? pozycje : [];
@@ -98,7 +139,6 @@ function normalizeItems(pozycje) {
     dzianina: it?.dzianina ?? "",
     kolor: it?.kolor ?? "",
     ilosc: it?.ilosc ?? "",
-    // ✅ backwards-compat: old key "iloscPosiadana"
     wydano: (it?.wydano ?? it?.iloscPosiadana ?? ""),
     covered: !!it?.covered,
   }));
@@ -107,33 +147,22 @@ function normalizeItems(pozycje) {
 function normalizeNote(note) {
   if (note.archived === undefined) note.archived = false;
   if (note.archivedAt === undefined) note.archivedAt = null;
-
   if (note.doneAt === undefined) note.doneAt = null;
-
   if (note.trashed === undefined) note.trashed = false;
   if (note.trashedAt === undefined) note.trashedAt = null;
-
   if (note.z === undefined) note.z = 0;
 
-  // createdAt
-  if (note.createdAt === undefined || note.createdAt === null) note.createdAt = Date.now();
+  if (note.createdAt === undefined || note.createdAt === null)
+    note.createdAt = Date.now();
   else note.createdAt = toMs(note.createdAt) ?? Date.now();
 
-  // due
-  if (note.due === undefined || note.due === null) note.due = "";
   note.due = sanitizeDue(note.due);
-
-  // items
   note.pozycje = normalizeItems(note.pozycje);
-
-  // faktura (new) + backwards compat "blue"
   if (note.faktura === undefined) note.faktura = !!note.blue;
 
-  // doneAt rules
   if (!note.done) note.doneAt = null;
   if (note.done && !note.doneAt) note.doneAt = Date.now();
 
-  // archivedAt rules
   if (!note.archived) note.archivedAt = null;
   if (note.archived && !note.archivedAt) note.archivedAt = Date.now();
 
@@ -147,21 +176,16 @@ function runSweeps() {
   for (const n of notes) {
     normalizeNote(n);
 
-    // never touch permanently deleted obviously; trash is separate
-    // 1) auto-archive done after 24h
-    if (!n.trashed && n.done && !n.archived && n.doneAt && (now - n.doneAt >= ARCHIVE_AFTER_MS)) {
+    if (!n.trashed && n.done && !n.archived && n.doneAt && now - n.doneAt >= ARCHIVE_AFTER_MS) {
       n.archived = true;
       n.archivedAt = now;
-      n.updatedAt = now;
       changed = true;
       io.emit("note:upsert", n);
     }
 
-    // 2) archived -> trash after 14 days
-    if (!n.trashed && n.archived && n.archivedAt && (now - n.archivedAt >= TRASH_ARCHIVED_AFTER_MS)) {
+    if (!n.trashed && n.archived && n.archivedAt && now - n.archivedAt >= TRASH_ARCHIVED_AFTER_MS) {
       n.trashed = true;
       n.trashedAt = now;
-      n.updatedAt = now;
       changed = true;
       io.emit("note:upsert", n);
     }
@@ -170,47 +194,26 @@ function runSweeps() {
   if (changed) saveNotes(notes);
 }
 
-// normalize on boot
 notes.forEach(normalizeNote);
 saveNotes(notes);
-
-// sweep every minute + on startup
 setInterval(runSweeps, 60 * 1000);
 runSweeps();
 
+/* =========================
+   SOCKET.IO
+   ========================= */
 io.on("connection", (socket) => {
   runSweeps();
   socket.emit("notes:init", notes);
 
   socket.on("note:create", (payload) => {
     const now = Date.now();
-
     const note = normalizeNote({
       id: nanoid(),
-      klient: payload.klient ?? "",
-      przedplata: !!payload.przedplata,
-      pozycje: normalizeItems(payload.pozycje),
-      kurier: payload.kurier ?? "",
-      waga: payload.waga ?? "",
-      info: payload.info ?? "",
-
-      due: sanitizeDue(payload.due),
-
-      done: !!payload.done,
+      ...payload,
       doneAt: payload.done ? now : null,
-
       archived: false,
-      archivedAt: null,
-
       trashed: false,
-      trashedAt: null,
-
-      faktura: !!payload.faktura,
-
-      z: Number.isFinite(payload.z) ? payload.z : 0,
-      x: Number.isFinite(payload.x) ? payload.x : 80,
-      y: Number.isFinite(payload.y) ? payload.y : 80,
-
       createdAt: toMs(payload.createdAt) ?? now,
       updatedAt: now,
     });
@@ -225,52 +228,7 @@ io.on("connection", (socket) => {
     if (idx === -1) return;
 
     const prev = normalizeNote(notes[idx]);
-    const next = { ...prev };
-
-    for (const [k, v] of Object.entries(payload)) {
-      if (v !== undefined) next[k] = v;
-    }
-
-    // normalize types
-    if (payload.przedplata !== undefined) next.przedplata = !!payload.przedplata;
-    if (payload.done !== undefined) next.done = !!payload.done;
-    if (payload.archived !== undefined) next.archived = !!payload.archived;
-    if (payload.trashed !== undefined) next.trashed = !!payload.trashed;
-
-    if (payload.x !== undefined) next.x = Number(payload.x);
-    if (payload.y !== undefined) next.y = Number(payload.y);
-    if (payload.z !== undefined) next.z = Number(payload.z);
-
-    if (payload.pozycje !== undefined) next.pozycje = normalizeItems(payload.pozycje);
-
-    if (payload.due !== undefined) next.due = sanitizeDue(payload.due);
-
-    if (payload.faktura !== undefined) next.faktura = !!payload.faktura;
-    // backwards compat if some client still sends blue
-    if (payload.blue !== undefined) next.faktura = !!payload.blue;
-
-    // DONE rules
-    if (payload.done !== undefined) {
-      const newDone = !!payload.done;
-      const wasDone = !!prev.done;
-      if (newDone && !wasDone) next.doneAt = Date.now();
-      if (!newDone) next.doneAt = null;
-    }
-
-    // ARCHIVE rules
-    if (payload.archived !== undefined) {
-      const wasArchived = !!prev.archived;
-      const nowArchived = !!next.archived;
-
-      if (!wasArchived && nowArchived) next.archivedAt = Date.now();
-      if (wasArchived && !nowArchived) next.archivedAt = null;
-    }
-
-    // TRASH rules
-    if (payload.trashed !== undefined) {
-      if (next.trashed) next.trashedAt = Date.now();
-      else next.trashedAt = null;
-    }
+    const next = { ...prev, ...payload };
 
     normalizeNote(next);
     next.updatedAt = Date.now();
@@ -283,54 +241,28 @@ io.on("connection", (socket) => {
   });
 
   socket.on("note:delete", ({ id }) => {
-    const before = notes.length;
     notes = notes.filter((n) => n.id !== id);
-    if (notes.length === before) return;
-
     saveNotes(notes);
     io.emit("note:delete", { id });
   });
 
   socket.on("trash:empty", () => {
-    const before = notes.length;
     const removed = notes.filter(n => n.trashed).map(n => n.id);
     notes = notes.filter(n => !n.trashed);
-
-    if (notes.length !== before) {
-      saveNotes(notes);
-      removed.forEach(id => io.emit("note:delete", { id }));
-    }
-  });
-
-  socket.on("board:clear", () => {
-    notes = [];
     saveNotes(notes);
-    io.emit("notes:init", notes);
+    removed.forEach(id => io.emit("note:delete", { id }));
   });
 
-  // chat
-  socket.on("chat:join", () => {
-    socket.emit("chat:init", chat);
-  });
-
+  socket.on("chat:join", () => socket.emit("chat:init", chat));
   socket.on("chat:send", (m) => {
-    const msg = {
-      name: (m && m.name ? String(m.name).slice(0, 40) : "").trim(),
-      text: (m && m.text ? String(m.text).slice(0, 1000) : "").trim(),
-      ts: Date.now(),
-    };
-    if (!msg.text) return;
-
-    chat.push(msg);
+    if (!m?.text) return;
+    chat.push({ text: String(m.text).slice(0, 1000), ts: Date.now() });
     if (chat.length > 500) chat = chat.slice(-500);
-
     saveChat();
-    io.emit("chat:new", msg);
+    io.emit("chat:new", chat.at(-1));
   });
 });
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`LAN Sticky running on http://0.0.0.0:${PORT}`);
-  console.log(`Notes file: ${DATA_FILE}`);
-  console.log(`Chat file: ${CHAT_FILE}`);
 });
