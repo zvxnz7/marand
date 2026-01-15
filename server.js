@@ -19,13 +19,9 @@ const CHAT_FILE = path.join(DATA_DIR, "chat.json");
 let chat = [];
 
 /* =========================
-   ✅ DATE HELPERS (NEW)
+   DATE HELPERS
    ========================= */
 function toMs(ts) {
-  // Accept:
-  // - number ms
-  // - ISO string
-  // - anything else -> null
   if (typeof ts === "number" && Number.isFinite(ts)) return ts;
   if (typeof ts === "string" && ts.trim()) {
     const t = Date.parse(ts);
@@ -35,13 +31,10 @@ function toMs(ts) {
 }
 
 function sanitizeDue(v) {
-  // due is stored as "YYYY-MM-DD" or "".
   if (v === null || v === undefined) return "";
   const s = String(v).trim();
   if (!s) return "";
-  // strict format
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
-  // basic calendar validity
   const t = Date.parse(s + "T00:00:00Z");
   if (!Number.isFinite(t)) return "";
   return s;
@@ -56,9 +49,7 @@ function loadChat() {
   }
 }
 function saveChat() {
-  try {
-    fs.writeFileSync(CHAT_FILE, JSON.stringify(chat, null, 2), "utf-8");
-  } catch {}
+  try { fs.writeFileSync(CHAT_FILE, JSON.stringify(chat, null, 2), "utf-8"); } catch {}
 }
 loadChat();
 
@@ -95,12 +86,28 @@ app.get("/health", (_, res) => {
   res.json({ ok: true, notes: notes.length, chat: chat.length });
 });
 
-// ---- AUTO-ARCHIVE LOGIC ----
-const ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000; // 24h
+/* =========================
+   AUTO RULES
+   ========================= */
+const ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;     // 24h after doneAt
+const TRASH_ARCHIVED_AFTER_MS = 14 * 24 * 60 * 60 * 1000; // 14 days archived
+
+function normalizeItems(pozycje) {
+  const arr = Array.isArray(pozycje) ? pozycje : [];
+  return (arr.length ? arr : [{ dzianina:"", kolor:"", ilosc:"", wydano:"", covered:false }]).map(it => ({
+    dzianina: it?.dzianina ?? "",
+    kolor: it?.kolor ?? "",
+    ilosc: it?.ilosc ?? "",
+    // ✅ backwards-compat: old key "iloscPosiadana"
+    wydano: (it?.wydano ?? it?.iloscPosiadana ?? ""),
+    covered: !!it?.covered,
+  }));
+}
 
 function normalizeNote(note) {
-  // fields for new features
   if (note.archived === undefined) note.archived = false;
+  if (note.archivedAt === undefined) note.archivedAt = null;
+
   if (note.doneAt === undefined) note.doneAt = null;
 
   if (note.trashed === undefined) note.trashed = false;
@@ -108,42 +115,52 @@ function normalizeNote(note) {
 
   if (note.z === undefined) note.z = 0;
 
-  // ✅ NEW: dates
+  // createdAt
   if (note.createdAt === undefined || note.createdAt === null) note.createdAt = Date.now();
-  else {
-    const ms = toMs(note.createdAt);
-    note.createdAt = ms ?? Date.now();
-  }
+  else note.createdAt = toMs(note.createdAt) ?? Date.now();
 
+  // due
   if (note.due === undefined || note.due === null) note.due = "";
   note.due = sanitizeDue(note.due);
 
-  // If trashed, we don't force anything else. (Trash is separate state.)
-  // If not done, clear doneAt (but do NOT touch "archived" unless you want strict rule)
-  if (!note.done) {
-    note.doneAt = null;
-    // keep archived as-is (so manual archive stays)
-  }
+  // items
+  note.pozycje = normalizeItems(note.pozycje);
 
-  // If done and missing doneAt, set it (covers old notes)
+  // faktura (new) + backwards compat "blue"
+  if (note.faktura === undefined) note.faktura = !!note.blue;
+
+  // doneAt rules
+  if (!note.done) note.doneAt = null;
   if (note.done && !note.doneAt) note.doneAt = Date.now();
+
+  // archivedAt rules
+  if (!note.archived) note.archivedAt = null;
+  if (note.archived && !note.archivedAt) note.archivedAt = Date.now();
 
   return note;
 }
 
-function runAutoArchiveSweep() {
+function runSweeps() {
   const now = Date.now();
   let changed = false;
 
-  for (let i = 0; i < notes.length; i++) {
-    const n = notes[i];
+  for (const n of notes) {
     normalizeNote(n);
 
-    // Never auto-archive trashed notes (doesn't matter anyway)
-    if (n.trashed) continue;
-
-    if (n.done && !n.archived && n.doneAt && (now - n.doneAt >= ARCHIVE_AFTER_MS)) {
+    // never touch permanently deleted obviously; trash is separate
+    // 1) auto-archive done after 24h
+    if (!n.trashed && n.done && !n.archived && n.doneAt && (now - n.doneAt >= ARCHIVE_AFTER_MS)) {
       n.archived = true;
+      n.archivedAt = now;
+      n.updatedAt = now;
+      changed = true;
+      io.emit("note:upsert", n);
+    }
+
+    // 2) archived -> trash after 14 days
+    if (!n.trashed && n.archived && n.archivedAt && (now - n.archivedAt >= TRASH_ARCHIVED_AFTER_MS)) {
+      n.trashed = true;
+      n.trashedAt = now;
       n.updatedAt = now;
       changed = true;
       io.emit("note:upsert", n);
@@ -153,16 +170,16 @@ function runAutoArchiveSweep() {
   if (changed) saveNotes(notes);
 }
 
-// Normalize on startup
+// normalize on boot
 notes.forEach(normalizeNote);
 saveNotes(notes);
 
-// Sweep every minute + once on startup
-setInterval(runAutoArchiveSweep, 60 * 1000);
-runAutoArchiveSweep();
+// sweep every minute + on startup
+setInterval(runSweeps, 60 * 1000);
+runSweeps();
 
 io.on("connection", (socket) => {
-  runAutoArchiveSweep();
+  runSweeps();
   socket.emit("notes:init", notes);
 
   socket.on("note:create", (payload) => {
@@ -172,28 +189,28 @@ io.on("connection", (socket) => {
       id: nanoid(),
       klient: payload.klient ?? "",
       przedplata: !!payload.przedplata,
-      pozycje: Array.isArray(payload.pozycje) ? payload.pozycje : [{ dzianina:"", kolor:"", ilosc:"" }],
+      pozycje: normalizeItems(payload.pozycje),
       kurier: payload.kurier ?? "",
       waga: payload.waga ?? "",
       info: payload.info ?? "",
 
-      // ✅ NEW
       due: sanitizeDue(payload.due),
 
       done: !!payload.done,
+      doneAt: payload.done ? now : null,
 
       archived: false,
-      doneAt: payload.done ? now : null,
+      archivedAt: null,
 
       trashed: false,
       trashedAt: null,
 
-      z: Number.isFinite(payload.z) ? payload.z : 0,
+      faktura: !!payload.faktura,
 
+      z: Number.isFinite(payload.z) ? payload.z : 0,
       x: Number.isFinite(payload.x) ? payload.x : 80,
       y: Number.isFinite(payload.y) ? payload.y : 80,
 
-      // createdAt can come from client (ISO) or be set now
       createdAt: toMs(payload.createdAt) ?? now,
       updatedAt: now,
     });
@@ -210,7 +227,6 @@ io.on("connection", (socket) => {
     const prev = normalizeNote(notes[idx]);
     const next = { ...prev };
 
-    // Copy only keys that are present
     for (const [k, v] of Object.entries(payload)) {
       if (v !== undefined) next[k] = v;
     }
@@ -225,35 +241,35 @@ io.on("connection", (socket) => {
     if (payload.y !== undefined) next.y = Number(payload.y);
     if (payload.z !== undefined) next.z = Number(payload.z);
 
-    if (payload.pozycje !== undefined) {
-      next.pozycje = Array.isArray(payload.pozycje) ? payload.pozycje : [];
-    }
+    if (payload.pozycje !== undefined) next.pozycje = normalizeItems(payload.pozycje);
 
-    // ✅ NEW: due updates
-    if (payload.due !== undefined) {
-      next.due = sanitizeDue(payload.due);
-    }
+    if (payload.due !== undefined) next.due = sanitizeDue(payload.due);
 
-    // DONE rules: manage doneAt
+    if (payload.faktura !== undefined) next.faktura = !!payload.faktura;
+    // backwards compat if some client still sends blue
+    if (payload.blue !== undefined) next.faktura = !!payload.blue;
+
+    // DONE rules
     if (payload.done !== undefined) {
       const newDone = !!payload.done;
       const wasDone = !!prev.done;
+      if (newDone && !wasDone) next.doneAt = Date.now();
+      if (!newDone) next.doneAt = null;
+    }
 
-      if (newDone && !wasDone) {
-        next.doneAt = Date.now();
-      }
-      if (!newDone) {
-        next.doneAt = null;
-      }
+    // ARCHIVE rules
+    if (payload.archived !== undefined) {
+      const wasArchived = !!prev.archived;
+      const nowArchived = !!next.archived;
+
+      if (!wasArchived && nowArchived) next.archivedAt = Date.now();
+      if (wasArchived && !nowArchived) next.archivedAt = null;
     }
 
     // TRASH rules
     if (payload.trashed !== undefined) {
-      if (next.trashed) {
-        next.trashedAt = Date.now();
-      } else {
-        next.trashedAt = null;
-      }
+      if (next.trashed) next.trashedAt = Date.now();
+      else next.trashedAt = null;
     }
 
     normalizeNote(next);
@@ -263,10 +279,9 @@ io.on("connection", (socket) => {
     saveNotes(notes);
     io.emit("note:upsert", next);
 
-    runAutoArchiveSweep();
+    runSweeps();
   });
 
-  // Permanent delete (used only from Trash UI)
   socket.on("note:delete", ({ id }) => {
     const before = notes.length;
     notes = notes.filter((n) => n.id !== id);
@@ -276,7 +291,6 @@ io.on("connection", (socket) => {
     io.emit("note:delete", { id });
   });
 
-  // Empty trash: permanently deletes all trashed notes
   socket.on("trash:empty", () => {
     const before = notes.length;
     const removed = notes.filter(n => n.trashed).map(n => n.id);
@@ -294,7 +308,7 @@ io.on("connection", (socket) => {
     io.emit("notes:init", notes);
   });
 
-  // ---- CHAT ----
+  // chat
   socket.on("chat:join", () => {
     socket.emit("chat:init", chat);
   });
