@@ -44,6 +44,9 @@ export const dom = {
     itemsEl: document.getElementById("items"),
     addItemBtn: document.getElementById("addItemBtn"),
   
+    // ✅ NEW: Update button
+    updateBtn: document.getElementById("updateBtn"),
+  
     chatBtn: document.getElementById("chatBtn"),
     chatBadge: document.getElementById("chatBadge"),
     chatPanel: document.getElementById("chatPanel"),
