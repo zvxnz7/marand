@@ -66,6 +66,69 @@ applyCam();
 // chat
 bindChatUI();
 
+// ✅ NEW: Update & Restart button
+async function runUpdateAndRestart(){
+  const token = prompt("ADMIN TOKEN:");
+  if (!token) return;
+
+  const oldText = dom.updateBtn?.textContent || "♻ Update";
+  if (dom.updateBtn){
+    dom.updateBtn.disabled = true;
+    dom.updateBtn.textContent = "⏳ Updating…";
+  }
+
+  try {
+    const r = await fetch("/admin/update", {
+      method: "POST",
+      headers: { "x-admin-token": token }
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      alert("Update failed ❌\n" + (data.error || r.statusText));
+      return;
+    }
+
+    alert("Updated + restarting ✅\n\n" + (data.output || ""));
+
+    // After restart, socket will reconnect automatically; reload is optional.
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    alert("Update failed ❌\n" + (e?.message || e));
+  } finally {
+    if (dom.updateBtn){
+      dom.updateBtn.disabled = false;
+      dom.updateBtn.textContent = oldText;
+    }
+  }
+}
+dom.updateBtn?.addEventListener("click", async () => {
+    if (!confirm("Pobrać nowy kod z GitHub i zrestartować serwer?")) return;
+  
+    dom.updateBtn.disabled = true;
+    dom.updateBtn.textContent = "⏳ Updating…";
+  
+    try {
+      const r = await fetch("/admin/update", { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+  
+      if (!r.ok) {
+        alert("Update failed ❌\n" + (data.error || r.statusText));
+        return;
+      }
+  
+      alert("Updated + restarted ✅");
+      setTimeout(() => location.reload(), 1500);
+    } catch (e) {
+      alert("Update failed ❌\n" + (e?.message || e));
+    } finally {
+      dom.updateBtn.disabled = false;
+      dom.updateBtn.textContent = "♻ Update";
+    }
+  });
+  
+
 // modal open/close
 dom.addBtn.onclick = () => openModalCreate();
 dom.cancelBtn.onclick = closeModal;
